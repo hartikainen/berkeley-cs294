@@ -68,5 +68,9 @@ def main():
         expert_data = {'observations': np.array(observations),
                        'actions': np.array(actions)}
 
+        dump_file = "./expert_data/{}.pkl".format(args.envname)
+        with open(dump_file, "wb") as f:
+            pickle.dump(expert_data, f)
+
 if __name__ == '__main__':
     main()
