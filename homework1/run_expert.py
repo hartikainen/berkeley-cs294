@@ -68,7 +68,8 @@ def main():
         expert_data = {'observations': np.array(observations),
                        'actions': np.array(actions)}
 
-        dump_file = "./expert_data/{}.pkl".format(args.envname)
+        dump_file = ("./expert_data/{}-{}.pkl"
+                     "".format(args.envname, args.num_rollouts))
         with open(dump_file, "wb") as f:
             pickle.dump(expert_data, f)
 
