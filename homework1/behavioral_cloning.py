@@ -1,8 +1,10 @@
 import pickle
 import argparse
 import numpy as np
+import tensorflow as tf
 from distutils.util import strtobool
 
+from helpers import train_test_val_split
 AVAILABLE_ENVS = (
     'Ant-v1',
     'HalfCheetah-v1',
@@ -11,6 +13,9 @@ AVAILABLE_ENVS = (
     'Reacher-v1',
     'Walker2d-v1'
 )
+
+def get_expert_filename(env, num_rollouts):
+    return "./expert_data/{}-{}.pkl".format(env, num_rollouts)
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Behavioral Cloning")
@@ -35,11 +40,22 @@ def parse_args():
                         type=int,
                         help=("Maximum number of steps to run environment for "
                               "each rollout"))
+    parser.add_argument("--mode",
+                        type=str,
+                        choices=["train", "evaluate"],
+                        help=("Mode to run in: train to train a model, "
+                              "evaluate to evaluate ready trained model"))
+
 
     # parser.add_argument('--expert_file', type=str)
     # parser.add_argument('--data_file', type=str)
 
     args = vars(parser.parse_args())
+
+    if args.get('expert_file', None) is None:
+        args['expert_file'] = get_expert_filename(args['env'],
+                                                  args['num_rollouts'])
+
     return args
 
 def get_log_level(level):
@@ -52,6 +68,83 @@ def get_log_level(level):
 
     return levels[level]
 
+def load_expert_data(expert_filename, verbose=False):
+    """ Load the expert data from pickle saved in expert_filename"""
+
+    expert_data = None
+    with open(expert_filename, "rb") as f:
+        expert_data = pickle.load(f)
+
+    observations = expert_data["observations"].astype('float32')
+    actions = np.squeeze(expert_data["actions"].astype('float32'))
+
+    if verbose:
+        # As a sanity check, print out the size of the training and test data.
+        print('observations shape: ', observations.shape)
+        print('actions shape: ', actions.shape)
+
+    return observations, actions
+
+def train_model(data):
+    X_train, y_train = data["X_train"], data["y_train"]
+    X_val,   y_val =   data["X_val"],   data["y_val"]
+
+    N_train = X_train.shape[0]
+    D_out = y_train.shape[-1]
+
+    BATCH_SIZE = 256
+    NUM_EPOCHS = 2
+    batches_per_epoch = int(N_train/BATCH_SIZE)
+
+    feature_columns = tf.contrib.learn.infer_real_valued_columns_from_input(
+        X_train)
+    model = tf.contrib.learn.DNNRegressor(
+        model_dir="./models/checkpoints/initial-test-model",
+        feature_columns=feature_columns,
+        hidden_units=[100, 100, 100],
+        label_dimension=D_out,
+        activation_fn=tf.nn.relu,
+        dropout=0.0,
+        optimizer=tf.train.AdamOptimizer(
+          learning_rate=1e-2,
+        )
+    )
+
+    validation_metrics = {
+        "rmse": tf.contrib.metrics.streaming_root_mean_squared_error,
+        "accuracy": tf.contrib.metrics.streaming_accuracy,
+    }
+
+    early_stop_monitor = tf.contrib.learn.monitors.ValidationMonitor(
+        X_val,
+        y_val,
+        every_n_steps=50,
+        metrics=validation_metrics,
+        early_stopping_metric="rmse",
+        early_stopping_metric_minimize=True,
+        early_stopping_rounds=500)
+
+    model.fit(
+        x=X_train,
+        y=y_train,
+        monitors=[early_stop_monitor],
+        steps=batches_per_epoch * NUM_EPOCHS
+    )
+
 if __name__ == "__main__":
     args = parse_args()
-    print(args)
+    observations, actions = load_expert_data(args['expert_file'])
+    train_prop = 16/20
+    val_prop = 3/20
+    test_prop = 1/20
+    N_dev = 500
+    data = train_test_val_split(
+        observations, actions,
+        train_prop, val_prop, test_prop, N_dev,
+        verbose=True
+    )
+
+    if args['mode'] == "train":
+        train_model(data)
+    elif args['mode'] == "evaluate":
+        pass
