@@ -2,7 +2,9 @@ import pickle
 import argparse
 import numpy as np
 import tensorflow as tf
+import gym
 from distutils.util import strtobool
+from load_policy import load_policy
 
 from helpers import train_test_val_split
 AVAILABLE_ENVS = (
@@ -130,6 +132,58 @@ def train_model(data):
         monitors=[early_stop_monitor],
         steps=batches_per_epoch * NUM_EPOCHS
     )
+
+def evaluate_model(data, model_dir, env, num_rollouts, expert_policy_file, render=False):
+    X_val,  y_val =  data["X_val"],  data["y_val"]
+    X_test, y_test = data["X_test"], data["y_test"]
+
+    feature_columns = tf.contrib.learn.infer_real_valued_columns_from_input(
+        X_val)
+    D_out = y_val.shape[-1]
+    model = tf.contrib.learn.DNNRegressor(
+        model_dir=model_dir,
+        feature_columns=feature_columns,
+        hidden_units=[100, 100, 100],
+        label_dimension=D_out,
+        activation_fn=tf.nn.relu,
+        dropout=0.0,
+    )
+
+    env = gym.make(env)
+    expert_policy = load_policy(expert_policy_file)
+
+    returns = []
+
+    max_steps = 100
+    max_steps = env.spec.timestep_limit
+
+    with tf.Session():
+        for r in range(1, num_rollouts+1):
+            obs = env.reset()
+            done = False
+            rollout_reward = 0.0
+            steps = 0
+
+            while not done and steps < max_steps:
+                obs = np.array(obs)
+
+                action = model.predict(x=obs[None, :], as_iterable=False)
+
+                obs, reward, done, _ = env.step(action)
+
+                rollout_reward += reward
+                steps += 1
+
+                if render: env.render()
+                if steps % 100 == 0: print("%i/%i" % (steps, max_steps))
+
+            returns.append(rollout_reward)
+
+        print('returns', returns)
+        print('mean return', np.mean(returns))
+        print('std of return', np.std(returns))
+
+
 
 if __name__ == "__main__":
     args = parse_args()
