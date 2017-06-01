@@ -4,9 +4,12 @@ import numpy as np
 import tensorflow as tf
 import gym
 from distutils.util import strtobool
+
+import models
+from helpers import train_test_val_split
 from load_policy import load_policy
 
-from helpers import train_test_val_split
+
 AVAILABLE_ENVS = (
     'Ant-v1',
     'HalfCheetah-v1',
@@ -16,8 +19,10 @@ AVAILABLE_ENVS = (
     'Walker2d-v1'
 )
 
+
 def get_expert_filename(env, num_rollouts):
     return "./expert_data/{}-{}.pkl".format(env, num_rollouts)
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Behavioral Cloning")
@@ -47,7 +52,11 @@ def parse_args():
                         choices=["train", "evaluate"],
                         help=("Mode to run in: train to train a model, "
                               "evaluate to evaluate ready trained model"))
-
+    parser.add_argument("--model_fn",
+                        type=str,
+                        default="create_baseline_model",
+                        help=("Name of a function in models.py that returns a "
+                              "model to be used for training/evaluation"))
 
     # parser.add_argument('--expert_file', type=str)
     # parser.add_argument('--data_file', type=str)
@@ -60,6 +69,7 @@ def parse_args():
 
     return args
 
+
 def get_log_level(level):
     levels = {}
     levels[0] = logging.DEBUG
@@ -69,6 +79,7 @@ def get_log_level(level):
     levels[4] = logging.CRITICAL
 
     return levels[level]
+
 
 def load_expert_data(expert_filename, verbose=False):
     """ Load the expert data from pickle saved in expert_filename"""
@@ -87,7 +98,32 @@ def load_expert_data(expert_filename, verbose=False):
 
     return observations, actions
 
-def train_model(data):
+
+def init_monitors(X, y, every_n_steps=50, early_stopping_rounds=500):
+    validation_metrics = {
+        "rmse": tf.contrib.metrics.streaming_root_mean_squared_error,
+        "accuracy": tf.contrib.metrics.streaming_accuracy,
+    }
+
+    early_stop_monitor = tf.contrib.learn.monitors.ValidationMonitor(
+        X, y,
+        every_n_steps=every_n_steps,
+        metrics=validation_metrics,
+        early_stopping_metric="rmse",
+        early_stopping_metric_minimize=True,
+        early_stopping_rounds=early_stopping_rounds)
+
+    return [early_stop_monitor]
+
+
+def input_fn(X, y):
+    feature_cols = { "observations": tf.constant(X, dtype=tf.float32) }
+    labels = tf.constant(y)
+
+    return feature_cols, labels
+
+
+def train_model(model, data):
     X_train, y_train = data["X_train"], data["y_train"]
     X_val,   y_val =   data["X_val"],   data["y_val"]
 
@@ -95,59 +131,23 @@ def train_model(data):
     D_out = y_train.shape[-1]
 
     BATCH_SIZE = 256
-    NUM_EPOCHS = 2
+    MAX_EPOCHS = 3
     batches_per_epoch = int(N_train/BATCH_SIZE)
 
-    feature_columns = tf.contrib.learn.infer_real_valued_columns_from_input(
-        X_train)
-    model = tf.contrib.learn.DNNRegressor(
-        model_dir="./models/checkpoints/initial-test-model",
-        feature_columns=feature_columns,
-        hidden_units=[100, 100, 100],
-        label_dimension=D_out,
-        activation_fn=tf.nn.relu,
-        dropout=0.0,
-        optimizer=tf.train.AdamOptimizer(
-          learning_rate=1e-2,
-        )
-    )
-
-    validation_metrics = {
-        "rmse": tf.contrib.metrics.streaming_root_mean_squared_error,
-        "accuracy": tf.contrib.metrics.streaming_accuracy,
-    }
-
-    early_stop_monitor = tf.contrib.learn.monitors.ValidationMonitor(
-        X_val,
-        y_val,
-        every_n_steps=50,
-        metrics=validation_metrics,
-        early_stopping_metric="rmse",
-        early_stopping_metric_minimize=True,
-        early_stopping_rounds=500)
+    monitors = init_monitors(X_val, y_val)
 
     model.fit(
+        # input_fn=lambda: input_fn(X_train, y_train),
         x=X_train,
         y=y_train,
-        monitors=[early_stop_monitor],
-        steps=batches_per_epoch * NUM_EPOCHS
+        monitors=monitors,
+        steps=batches_per_epoch * MAX_EPOCHS
     )
 
-def evaluate_model(data, model_dir, env, num_rollouts, expert_policy_file, render=False):
+def evaluate_model(model, data, env, num_rollouts,
+                   expert_policy_file, render=False):
     X_val,  y_val =  data["X_val"],  data["y_val"]
     X_test, y_test = data["X_test"], data["y_test"]
-
-    feature_columns = tf.contrib.learn.infer_real_valued_columns_from_input(
-        X_val)
-    D_out = y_val.shape[-1]
-    model = tf.contrib.learn.DNNRegressor(
-        model_dir=model_dir,
-        feature_columns=feature_columns,
-        hidden_units=[100, 100, 100],
-        label_dimension=D_out,
-        activation_fn=tf.nn.relu,
-        dropout=0.0,
-    )
 
     env = gym.make(env)
     expert_policy = load_policy(expert_policy_file)
@@ -179,10 +179,9 @@ def evaluate_model(data, model_dir, env, num_rollouts, expert_policy_file, rende
 
             returns.append(rollout_reward)
 
-        print('returns', returns)
-        print('mean return', np.mean(returns))
-        print('std of return', np.std(returns))
-
+    print('returns', returns)
+    print('mean return', np.mean(returns))
+    print('std of return', np.std(returns))
 
 
 if __name__ == "__main__":
@@ -198,7 +197,15 @@ if __name__ == "__main__":
         verbose=True
     )
 
+    D_in, D_out = data["X_train"].shape[-1], data["y_train"].shape[-1]
+
+    model_fn = getattr(models, args["model_fn"])
+    model = model_fn(D_in, D_out)
+
     if args['mode'] == "train":
-        train_model(data)
+        train_model(model, data)
     elif args['mode'] == "evaluate":
-        pass
+        expert_policy_file = "./experts/{}.pkl".format(args['env'])
+        evaluate_model(model, data, env=args['env'],
+                       num_rollouts=args['num_rollouts'],
+                       expert_policy_file=expert_policy_file)
