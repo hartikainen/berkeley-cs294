@@ -5,7 +5,7 @@ MODEL_DIR_BASE = "./models"
 def init_feature_columns(D_in):
     feature_columns = [
         tf.contrib.layers.real_valued_column(
-            "observations",
+            "",
             dimension=D_in,
             default_value=None,
             dtype=tf.float32,

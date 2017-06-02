@@ -20,9 +20,11 @@ AVAILABLE_ENVS = (
 )
 
 
-def get_expert_filename(env, num_rollouts):
+def get_expert_data_file(env, num_rollouts):
     return "./expert_data/{}-{}.pkl".format(env, num_rollouts)
 
+def get_expert_policy_file(env):
+    return "./experts/{}.pkl".format(env)
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Behavioral Cloning")
@@ -57,15 +59,16 @@ def parse_args():
                         default="create_baseline_model",
                         help=("Name of a function in models.py that returns a "
                               "model to be used for training/evaluation"))
-
     # parser.add_argument('--expert_file', type=str)
-    # parser.add_argument('--data_file', type=str)
 
     args = vars(parser.parse_args())
 
-    if args.get('expert_file', None) is None:
-        args['expert_file'] = get_expert_filename(args['env'],
-                                                  args['num_rollouts'])
+    if args.get('expert_data_file', None) is None:
+        args['expert_data_file'] = get_expert_data_file(args['env'],
+                                                        args['num_rollouts'])
+
+    if args.get('expert_policy_file', None) is None:
+        args['expert_policy_file'] = get_expert_policy_file(args['env'])
 
     return args
 
@@ -81,11 +84,11 @@ def get_log_level(level):
     return levels[level]
 
 
-def load_expert_data(expert_filename, verbose=False):
-    """ Load the expert data from pickle saved in expert_filename"""
+def load_expert_data(filename, verbose=False):
+    """ Load the expert data from pickle saved in filename"""
 
     expert_data = None
-    with open(expert_filename, "rb") as f:
+    with open(filename, "rb") as f:
         expert_data = pickle.load(f)
 
     observations = expert_data["observations"].astype('float32')
@@ -144,11 +147,9 @@ def train_model(model, data):
         steps=batches_per_epoch * MAX_EPOCHS
     )
 
+
 def evaluate_model(model, data, env, num_rollouts,
                    expert_policy_file, render=False):
-    X_val,  y_val =  data["X_val"],  data["y_val"]
-    X_test, y_test = data["X_test"], data["y_test"]
-
     env = gym.make(env)
     expert_policy = load_policy(expert_policy_file)
 
@@ -186,7 +187,7 @@ def evaluate_model(model, data, env, num_rollouts,
 
 if __name__ == "__main__":
     args = parse_args()
-    observations, actions = load_expert_data(args['expert_file'])
+    observations, actions = load_expert_data(args['expert_data_file'])
     train_prop = 16/20
     val_prop = 3/20
     test_prop = 1/20
@@ -205,7 +206,6 @@ if __name__ == "__main__":
     if args['mode'] == "train":
         train_model(model, data)
     elif args['mode'] == "evaluate":
-        expert_policy_file = "./experts/{}.pkl".format(args['env'])
         evaluate_model(model, data, env=args['env'],
                        num_rollouts=args['num_rollouts'],
-                       expert_policy_file=expert_policy_file)
+                       expert_policy_file=args['expert_policy_file'])
