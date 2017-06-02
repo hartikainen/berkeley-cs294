@@ -19,19 +19,30 @@ AVAILABLE_ENVS = (
     'Walker2d-v1'
 )
 
+LOG_LEVELS = (
+    tf.logging.ERROR,
+    tf.logging.INFO,
+    tf.logging.WARN,
+    tf.logging.ERROR,
+    tf.logging.FATAL
+)
+
 
 def get_expert_data_file(env, num_rollouts):
     return "./expert_data/{}-{}.pkl".format(env, num_rollouts)
 
+
 def get_expert_policy_file(env):
     return "./experts/{}.pkl".format(env)
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Behavioral Cloning")
 
-    parser.add_argument("--log",
+    parser.add_argument("--log_level",
                         type=int,
-                        default=1,
+                        default=4,
+                        choices=tuple(range(len(LOG_LEVELS))),
                         help="Logging level")
     parser.add_argument("--env",
                         type=str,
@@ -71,17 +82,6 @@ def parse_args():
         args['expert_policy_file'] = get_expert_policy_file(args['env'])
 
     return args
-
-
-def get_log_level(level):
-    levels = {}
-    levels[0] = logging.DEBUG
-    levels[1] = logging.INFO
-    levels[2] = logging.WARNING
-    levels[3] = logging.ERROR
-    levels[4] = logging.CRITICAL
-
-    return levels[level]
 
 
 def load_expert_data(filename, verbose=False):
@@ -148,15 +148,14 @@ def train_model(model, data):
     )
 
 
-def evaluate_model(model, data, env, num_rollouts,
-                   expert_policy_file, render=False):
+def evaluate_model(model, data, env, num_rollouts, expert_policy_file,
+                   max_timesteps=None, render=False):
     env = gym.make(env)
     expert_policy = load_policy(expert_policy_file)
 
     returns = []
 
-    max_steps = 100
-    max_steps = env.spec.timestep_limit
+    if max_timesteps is None: max_timesteps = env.spec.timestep_limit
 
     with tf.Session():
         for r in range(1, num_rollouts+1):
@@ -165,7 +164,7 @@ def evaluate_model(model, data, env, num_rollouts,
             rollout_reward = 0.0
             steps = 0
 
-            while not done and steps < max_steps:
+            while not done and steps < max_timesteps:
                 obs = np.array(obs)
 
                 action = model.predict(x=obs[None, :], as_iterable=False)
@@ -176,7 +175,7 @@ def evaluate_model(model, data, env, num_rollouts,
                 steps += 1
 
                 if render: env.render()
-                if steps % 100 == 0: print("%i/%i" % (steps, max_steps))
+                if steps % 100 == 0: print("%i/%i" % (steps, max_timesteps))
 
             returns.append(rollout_reward)
 
@@ -187,6 +186,9 @@ def evaluate_model(model, data, env, num_rollouts,
 
 if __name__ == "__main__":
     args = parse_args()
+
+    tf.logging.set_verbosity(LOG_LEVELS[args['log_level']])
+
     observations, actions = load_expert_data(args['expert_data_file'])
     train_prop = 16/20
     val_prop = 3/20
