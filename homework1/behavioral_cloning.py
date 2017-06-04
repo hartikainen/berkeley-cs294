@@ -1,3 +1,4 @@
+import json
 import pickle
 import argparse
 import numpy as np
@@ -27,6 +28,21 @@ LOG_LEVELS = (
     tf.logging.FATAL
 )
 
+def dump_results(results_file, args, returns):
+    new_result = args.copy()
+    new_result["returns"] = returns
+
+    try:
+        with open(results_file, "r") as f:
+            data = json.load(f)
+    except FileNotFoundError:
+        data = []
+    finally:
+        data.append(new_result)
+        with open(results_file, "w") as f:
+            json.dump(data, f, sort_keys=True,
+                      indent=4, separators=(',', ': '))
+
 
 def get_expert_data_file(env, num_rollouts):
     return "./expert_data/{}-{}.pkl".format(env, num_rollouts)
@@ -34,6 +50,10 @@ def get_expert_data_file(env, num_rollouts):
 
 def get_expert_policy_file(env):
     return "./experts/{}.pkl".format(env)
+
+def get_model_dir(model_fn, env):
+    model_name = model_fn.replace("create_", "")
+    return models.MODEL_DIR_BASE + "/{}-{}".format(model_name, env)
 
 
 def parse_args():
@@ -70,7 +90,10 @@ def parse_args():
                         default="create_baseline_model",
                         help=("Name of a function in models.py that returns a "
                               "model to be used for training/evaluation"))
-    # parser.add_argument('--expert_file', type=str)
+    parser.add_argument('--results_file',
+                        type=str,
+                        default="./results/behavioral_cloning.json",
+                        help="File path to write the results to")
 
     args = vars(parser.parse_args())
 
@@ -133,8 +156,8 @@ def train_model(model, data):
     N_train = X_train.shape[0]
     D_out = y_train.shape[-1]
 
-    BATCH_SIZE = 256
-    MAX_EPOCHS = 3
+    BATCH_SIZE = 32
+    MAX_EPOCHS = 5
     batches_per_epoch = int(N_train/BATCH_SIZE)
 
     monitors = init_monitors(X_val, y_val)
@@ -203,10 +226,12 @@ if __name__ == "__main__":
     D_in, D_out = data["X_train"].shape[-1], data["y_train"].shape[-1]
 
     model_fn = getattr(models, args["model_fn"])
-    model = model_fn(D_in, D_out)
+    model_dir = get_model_dir(args['model_fn'], args['env'])
+    model = model_fn(D_in, D_out, model_dir=model_dir)
 
     if args['mode'] == "train":
-        train_model(model, data)
+        returns = train_model(model, data)
+        dump_results(args['results_file'], args, returns)
     elif args['mode'] == "evaluate":
         evaluate_model(model, data, env=args['env'],
                        num_rollouts=args['num_rollouts'],

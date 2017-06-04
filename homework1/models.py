@@ -15,11 +15,11 @@ def init_feature_columns(D_in):
 
     return feature_columns
 
-def create_baseline_model(D_in, D_out):
+def create_baseline_model(D_in, D_out, model_dir=None):
     feature_columns = init_feature_columns(D_in)
 
     model = tf.contrib.learn.DNNRegressor(
-        model_dir=MODEL_DIR_BASE + "/baseline",
+        model_dir=model_dir,
         feature_columns=feature_columns,
         hidden_units=[20],
         label_dimension=D_out,
@@ -32,11 +32,11 @@ def create_baseline_model(D_in, D_out):
 
     return model
 
-def create_multi_layer_model(D_in, D_out):
+def create_multi_layer_model(D_in, D_out, model_dir=None):
     feature_columns = init_feature_columns(D_in)
 
     model = tf.contrib.learn.DNNRegressor(
-        model_dir=MODEL_DIR_BASE + "/multi-layer",
+        model_dir=model_dir,
         feature_columns=feature_columns,
         hidden_units=[200, 400, 200],
         label_dimension=D_out,
@@ -46,3 +46,5 @@ def create_multi_layer_model(D_in, D_out):
           learning_rate=1e-2,
         )
     )
+
+    return model
