@@ -9,12 +9,31 @@ Example usage:
 Author of this script and included expert policies: Jonathan Ho (hoj@openai.com)
 """
 
+from datetime import datetime
+import json
 import pickle
 import tensorflow as tf
 import numpy as np
 import tf_util
 import gym
 import load_policy
+
+def dump_results(results_file, args, returns):
+    new_result = vars(args).copy()
+    new_result["returns"] = returns
+    new_result["timestamp"] = datetime.now().isoformat()
+
+    data = []
+    try:
+        with open(results_file, "r") as f:
+            data = json.load(f)
+    except FileNotFoundError:
+        pass
+    finally:
+        data.append(new_result)
+        with open(results_file, "w") as f:
+            json.dump(data, f, sort_keys=True,
+                      indent=4, separators=(',', ': '))
 
 def main():
     import argparse
@@ -65,11 +84,15 @@ def main():
         print('mean return', np.mean(returns))
         print('std of return', np.std(returns))
 
+        if args.get('results_file', None) is not None:
+            dump_results(args['results_file'], args, returns)
+
         expert_data = {'observations': np.array(observations),
                        'actions': np.array(actions)}
 
         dump_file = ("./expert_data/{}-{}.pkl"
                      "".format(args.envname, args.num_rollouts))
+
         with open(dump_file, "wb") as f:
             pickle.dump(expert_data, f)
 

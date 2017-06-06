@@ -1,10 +1,12 @@
 import json
 import pickle
 import argparse
+from distutils.util import strtobool
+from datetime import datetime
+
 import numpy as np
 import tensorflow as tf
 import gym
-from distutils.util import strtobool
 
 import models
 from helpers import train_test_val_split
@@ -31,12 +33,14 @@ LOG_LEVELS = (
 def dump_results(results_file, args, returns):
     new_result = args.copy()
     new_result["returns"] = returns
+    new_result["timestamp"] = datetime.now().isoformat()
 
+    data = []
     try:
         with open(results_file, "r") as f:
             data = json.load(f)
     except FileNotFoundError:
-        data = []
+        pass
     finally:
         data.append(new_result)
         with open(results_file, "w") as f:
@@ -202,9 +206,7 @@ def evaluate_model(model, data, env, num_rollouts, expert_policy_file,
 
             returns.append(rollout_reward)
 
-    print('returns', returns)
-    print('mean return', np.mean(returns))
-    print('std of return', np.std(returns))
+    return returns
 
 
 if __name__ == "__main__":
@@ -231,8 +233,16 @@ if __name__ == "__main__":
 
     if args['mode'] == "train":
         returns = train_model(model, data)
-        dump_results(args['results_file'], args, returns)
+
     elif args['mode'] == "evaluate":
-        evaluate_model(model, data, env=args['env'],
-                       num_rollouts=args['num_rollouts'],
-                       expert_policy_file=args['expert_policy_file'])
+        returns = evaluate_model(model, data, env=args['env'],
+                                 num_rollouts=args['num_rollouts'],
+                                 max_timesteps=args['max_timesteps'],
+                                 expert_policy_file=args['expert_policy_file'])
+
+        if args.get('results_file', None) is not None:
+            dump_results(args['results_file'], args, returns)
+        else:
+            print('returns', returns)
+            print('mean return', np.mean(returns))
+            print('std of return', np.std(returns))
