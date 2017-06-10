@@ -170,6 +170,7 @@ def learn(env,
     last_obs = env.reset()
     LOG_EVERY_N_STEPS = 10000
 
+    action, reward, done = env.action_space.sample(), 0.0, False
     for t in itertools.count():
         ### 1. Check stopping criterion
         if stopping_criterion is not None and stopping_criterion(env, t):
@@ -206,8 +207,31 @@ def learn(env,
         # might as well be random, since you haven't trained your net...)
 
         #####
-        
-        # YOUR CODE HERE
+
+        frame_idx = replay_buffer.store_frame(last_obs)
+
+        epsilon = exploration.value(t)
+        if not model_initialized:
+            # take random actions until model initialized
+            action = env.action_space.sample()
+        elif random.random() < epsilon:
+            # exploration
+            action = env.action_space.sample()
+        else:
+            # exploitation
+            img_in = replay_buffer.encode_recent_observation()
+            q = session.run(q_t,
+                            feed_dict={ obs_t_ph: img_in[None, :] })
+            action = np.argmax(q)
+
+        obs, reward, done, info = env.step(action)
+
+        replay_buffer.store_effect(frame_idx, action, reward, done)
+
+        if done:
+            obs = env.reset()
+
+        last_obs = obs
 
         #####
 
@@ -256,7 +280,7 @@ def learn(env,
             # you should update every target_update_freq steps, and you may find the
             # variable num_param_updates useful for this (it was initialized to 0)
             #####
-            
+
             # YOUR CODE HERE
 
             #####
