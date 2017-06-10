@@ -280,9 +280,34 @@ def learn(env,
             # you should update every target_update_freq steps, and you may find the
             # variable num_param_updates useful for this (it was initialized to 0)
             #####
+            (obs_batch, act_batch, rew_batch,
+             next_obs_batch, done_mask) = replay_buffer.sample(batch_size)
 
-            # YOUR CODE HERE
+            if not model_initialized:
+                init_feed_dict = {
+                    obs_t_ph: obs_t_patch,
+                    obs_tp1_ph: obs_tp1_batch
+                }
+                initialize_interdependent_variables(session,
+                                                    tf.global_variables(),
+                                                    init_feed_dict)
+                session.run([update_target_fn])
+                model_initialized = True
 
+            train_feed_dict = {
+                obs_t_ph: obs_batch,
+                act_t_ph: act_batch,
+                rew_t_ph: rew_batch,
+                obs_tp1_ph: next_obs_batch,
+                done_mask_ph: done_mask,
+                learning_rate: optimizer_spec.lr_schedule.value(t)
+            }
+
+            sess.run([total_error, train_fn], feed_dict=train_feed_dict)
+
+            if t % target_update_freq == 0:
+                session.run([update_target_fn])
+                num_param_updates += 1
             #####
 
         ### 4. Log progress
