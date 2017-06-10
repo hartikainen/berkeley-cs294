@@ -128,20 +128,18 @@ def learn(env,
     ######
 
     q_t = q_func(obs_t_float, num_actions, scope="q_func", reuse=False)
-    q_t_func_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES,
-                                      scope='q_func')
+    q_func_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES,
+                                    scope='q_func')
 
     q_tp1 = q_func(obs_tp1_float, num_actions,
                    scope="target_q_func", reuse=False)
-    q_tp1_func_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES,
-                                        scope='target_q_func')
+    target_q_func_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES,
+                                           scope='target_q_func')
 
-    delta_t = rew_t_ph + gamma * tf.reduce_max(q_tp1, axis=1) - q_t[act_t_ph]
+    # TODO: is there a way to index q_t with act_t_ph without converting it to one_hot?
+    act_t = tf.one_hot(act_t_ph, num_actions, dtype=tf.float32)
+    delta_t = rew_t_ph + gamma * tf.reduce_max(q_tp1, axis=1) - act_t * q_t
     total_error = tf.square(delta_t)
-
-    # delta_t = r_{t+1} + \gamma * Q(s_{t+1}, a_{t+1}) - Q(s_{t}, a_{t})
-    # Q(s,a) = Q(s,a) + \alpha * (R + \gamma * max_{a'}(Q(s',a')) - Q(s,a))
-
     ######
 
     # construct optimization op (with gradient clipping)
@@ -285,8 +283,8 @@ def learn(env,
 
             if not model_initialized:
                 init_feed_dict = {
-                    obs_t_ph: obs_t_patch,
-                    obs_tp1_ph: obs_tp1_batch
+                    obs_t_ph: obs_batch,
+                    obs_tp1_ph: obs_batch
                 }
                 initialize_interdependent_variables(session,
                                                     tf.global_variables(),
