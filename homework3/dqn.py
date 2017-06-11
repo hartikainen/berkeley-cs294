@@ -126,7 +126,6 @@ def learn(env,
     # q_func_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='q_func')
     # Older versions of TensorFlow may require using "VARIABLES" instead of "GLOBAL_VARIABLES"
     ######
-
     q_t = q_func(obs_t_float, num_actions, scope="q_func", reuse=False)
     q_func_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES,
                                     scope='q_func')
@@ -137,8 +136,9 @@ def learn(env,
                                            scope='target_q_func')
 
     # TODO: is there a way to index q_t with act_t_ph without converting it to one_hot?
-    act_t = tf.one_hot(act_t_ph, num_actions, dtype=tf.float32)
-    delta_t = rew_t_ph + gamma * tf.reduce_max(q_tp1, axis=1) - act_t * q_t
+    act_one_hot = tf.one_hot(act_t_ph, num_actions, dtype=tf.float32)
+    delta_t = rew_t_ph + (gamma * tf.reduce_max(q_tp1, axis=1)
+                          - tf.reduce_sum(act_one_hot * q_t, axis=1))
     total_error = tf.square(delta_t)
     ######
 
@@ -217,9 +217,9 @@ def learn(env,
             action = env.action_space.sample()
         else:
             # exploitation
-            img_in = replay_buffer.encode_recent_observation()
+            imgs_in = replay_buffer.encode_recent_observation()
             q = session.run(q_t,
-                            feed_dict={ obs_t_ph: img_in[None, :] })
+                            feed_dict={ obs_t_ph: imgs_in[None, :] })
             action = np.argmax(q)
 
         obs, reward, done, info = env.step(action)
@@ -284,12 +284,12 @@ def learn(env,
             if not model_initialized:
                 init_feed_dict = {
                     obs_t_ph: obs_batch,
-                    obs_tp1_ph: obs_batch
+                    obs_tp1_ph: next_obs_batch
                 }
                 initialize_interdependent_variables(session,
                                                     tf.global_variables(),
                                                     init_feed_dict)
-                session.run([update_target_fn])
+                session.run(update_target_fn)
                 model_initialized = True
 
             train_feed_dict = {
@@ -301,10 +301,10 @@ def learn(env,
                 learning_rate: optimizer_spec.lr_schedule.value(t)
             }
 
-            sess.run([total_error, train_fn], feed_dict=train_feed_dict)
+            session.run(train_fn, feed_dict=train_feed_dict)
 
             if t % target_update_freq == 0:
-                session.run([update_target_fn])
+                session.run(update_target_fn)
                 num_param_updates += 1
             #####
 
