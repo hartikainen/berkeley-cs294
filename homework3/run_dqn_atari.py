@@ -10,27 +10,14 @@ import tensorflow.contrib.layers as layers
 import dqn
 from dqn_utils import *
 from atari_wrappers import *
+from utils import parse_args
+import models
 
-
-def atari_model(img_in, num_actions, scope, reuse=False):
-    # as described in https://storage.googleapis.com/deepmind-data/assets/papers/DeepMindNature14236Paper.pdf
-    with tf.variable_scope(scope, reuse=reuse):
-        out = img_in
-        with tf.variable_scope("convnet"):
-            # original architecture
-            out = layers.convolution2d(out, num_outputs=32, kernel_size=8, stride=4, activation_fn=tf.nn.relu)
-            out = layers.convolution2d(out, num_outputs=64, kernel_size=4, stride=2, activation_fn=tf.nn.relu)
-            out = layers.convolution2d(out, num_outputs=64, kernel_size=3, stride=1, activation_fn=tf.nn.relu)
-        out = layers.flatten(out)
-        with tf.variable_scope("action_value"):
-            out = layers.fully_connected(out, num_outputs=512,         activation_fn=tf.nn.relu)
-            out = layers.fully_connected(out, num_outputs=num_actions, activation_fn=None)
-
-        return out
 
 def atari_learn(env,
                 session,
-                num_timesteps):
+                num_timesteps,
+                model_fn):
     # This is just a rough estimate
     num_iterations = float(num_timesteps) / 4.0
 
@@ -62,13 +49,13 @@ def atari_learn(env,
 
     dqn.learn(
         env,
-        q_func=atari_model,
+        q_func=model_fn,
         optimizer_spec=optimizer,
         session=session,
         exploration=exploration_schedule,
         stopping_criterion=stopping_criterion,
         replay_buffer_size=1000000,
-        batch_size=4,
+        batch_size=32,
         gamma=0.99,
         learning_starts=50000,
         learning_freq=4,
@@ -117,6 +104,8 @@ def get_env(task, seed):
     return env
 
 def main():
+    args = parse_args()
+
     # Get Atari games.
     benchmark = gym.benchmark_spec('Atari40M')
 
@@ -127,7 +116,14 @@ def main():
     seed = 0 # Use a seed of zero (you may want to randomize the seed!)
     env = get_env(task, seed)
     session = get_session()
-    atari_learn(env, session, num_timesteps=task.max_timesteps)
+
+    max_timesteps = args.get("max_timesteps", None) or task.max_timesteps
+    model_fn = getattr(models, args["model_fn"])
+    results_file = args["results_file"]
+
+    atari_learn(env, session,
+                num_timesteps=max_timesteps,
+                model=model_fn)
 
 if __name__ == "__main__":
     main()
