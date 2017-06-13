@@ -89,7 +89,7 @@ def get_session():
     print("AVAILABLE GPUS: ", get_available_gpus())
     return session
 
-def get_env(task, seed):
+def get_env(task, seed, model_fn_name):
     env_id = task.env_id
 
     env = gym.make(env_id)
@@ -97,7 +97,7 @@ def get_env(task, seed):
     set_global_seeds(seed)
     env.seed(seed)
 
-    expt_dir = '/tmp/hw3_vid_dir2/'
+    expt_dir = '/tmp/hw3_vid_dir2/{}'.format(model_fn_name)
     env = wrappers.Monitor(env, osp.join(expt_dir, "gym"), force=True)
     env = wrap_deepmind(env)
 
@@ -114,16 +114,17 @@ def main():
 
     # Run training
     seed = 0 # Use a seed of zero (you may want to randomize the seed!)
-    env = get_env(task, seed)
+    env = get_env(task, seed, args["model_fn"])
     session = get_session()
 
     max_timesteps = args.get("max_timesteps", None) or task.max_timesteps
-    model_fn = getattr(models, args["model_fn"])
     results_file = args["results_file"]
+    model_fn = getattr(models, args["model_fn"])
 
     atari_learn(env, session,
                 num_timesteps=max_timesteps,
-                model=model_fn)
+                model_fn=model_fn)
+
 
 if __name__ == "__main__":
     main()
