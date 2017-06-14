@@ -259,8 +259,7 @@ def main_pendulum(logdir, seed, n_iter, gamma, min_timesteps_per_batch, initial_
     # sampled actions, used for defining policy (NOT computing policy gradient)
     sy_sampled_ac = sy_ac_dist.sample(
         sample_shape=[ac_dim],
-        name='sy_sampled_ac'
-    )
+        name='sy_sampled_ac')
     # log-prob of actions taken -- used for policy gradient calculation
     sy_logprob_n = sy_ac_dist.log_pdf(sy_ac_n)
 
@@ -286,7 +285,78 @@ def main_pendulum(logdir, seed, n_iter, gamma, min_timesteps_per_batch, initial_
     for i in range(n_iter):
         print("********** Iteration %i ************"%i)
 
-        YOUR_CODE_HERE
+        # Collect paths until we have enough timesteps
+        timesteps_this_batch = 0
+        paths = []
+        while True:
+            observation = env.reset()
+            terminated = False
+
+            observations, actions, rewards = [], [], []
+            animate_this_episode = (len(paths) == 0
+                                    and (i % 10 == 0)
+                                    and animate)
+
+            while True:
+                if animate_this_episode: env.render()
+                observations.append(observation)
+                action = sess.run(sy_sampled_ac,
+                                  feed_dict={ sy_ob_no: ob[None] })
+                actions.append(action)
+                observation, reward, done, _ = env.step(action)
+                rewards.append(reward)
+
+                if done: break
+
+            path = {
+                "observation" : np.array(obs),
+                "terminated" : terminated,
+                "reward" : np.array(rewards),
+                "action" : np.array(acs)
+            }
+            paths.append(path)
+
+            timesteps_this_batch += pathlength(path)
+            if timesteps_this_batch > min_timesteps_per_batch:
+                break
+        total_timesteps += timesteps_this_batch
+        # Estimate advantage function
+        vtargs, vpreds, advs = [], [], []
+        for path in paths:
+            rew_t = path["reward"]
+            return_t = discount(rew_t, gamma)
+            vpred_t = vf.predict(path["observation"])
+            adv_t = return_t - vpred_t
+            advs.append(adv_t)
+            vtargs.append(return_t)
+            vpreds.append(vpred_t)
+
+        # Build arrays for policy update
+        ob_no = np.concatenate([path["observation"] for path in paths])
+        ac_n = np.concatenate([path["action"] for path in paths])
+        adv_n = np.concatenate(advs)
+        standardized_adv_n = (adv_n - adv_n.mean()) / (adv_n.std() + 1e-8)
+        vtarg_n = np.concatenate(vtargs)
+        vpred_n = np.concatenate(vpreds)
+        vf.fit(ob_no, vtarg_n)
+
+        # Policy update
+        _, oldmean_na, oldlogstd_na = sess.run(
+            [ update_op, sy_oldmean_na, sy_oldlogstd_na ],
+            feed_dict={
+                sy_ob_no: ob_no,
+                sy_ac_n: ac_n,
+                sy_adv_n: standardized_adv_n,
+                sy_stepsize: stepsize
+            })
+
+        kl, ent = sess.run(
+            [sy_kl, sy_ent],
+            feed_dict={
+                sy_ob_no: ob_no,
+                sy_oldmean_na: oldmean_na,
+                sy_oldlogstd_a: oldlogstd_a
+            })
 
         if kl > desired_kl * 2:
             stepsize /= 1.5
