@@ -85,7 +85,15 @@ class LinearValueFunction(object):
         return np.concatenate([np.ones([X.shape[0], 1]), X, np.square(X)/2.0], axis=1)
 
 class NnValueFunction(object):
-    pass # YOUR CODE HERE
+    # TODO: YOUR CODE HERE
+    def fit(self, X, y):
+        pass
+
+    def predict(self, X):
+        pass
+
+    def preproc(self, X):
+        pass
 
 def lrelu(x, leak=0.2):
     f1 = 0.5 * (1 + leak)
@@ -213,9 +221,55 @@ def main_pendulum(logdir, seed, n_iter, gamma, min_timesteps_per_batch, initial_
     elif vf_type == 'nn':
         vf = NnValueFunction(ob_dim=ob_dim, **vf_params)
 
+    sy_ob_no = tf.placeholder(shape=[None ob_dim], name="ob", dtype=tf.float32)
+    # actions batch taken by the policy, used for policy gradient computation
+    sy_ac_n = tf.placeholder(shape=[None], name="ac", dtype=tf.float32)
+    # advantage function estimate
+    sy_adv_n = tf.placeholder(shape=[None], name="adv", dtype=tf.float32)
 
-    YOUR_CODE_HERE
+    # hidden layer 1
+    sy_h1 = lrelu(dense(sy_ob_no, 32, "h1",
+                        weight_init=normc_initializer(1.0)))
+    # hidden layer 2
+    sy_h2 = lrelu(dense(sy_h1, 32, "h2",
+                        weight_init=normc_initializer(1.0)))
 
+    # Mean control output
+    sy_mean_na = dense(sy_h2, ac_dim, name="final",
+                       weight_init=normc_initializer(0.1))
+    # Variance
+    sy_logstd_a = tf.get_variable("logstdev", [ac_dim],
+                                  initializer=tf.zeros_initializer)
+
+    sy_ac_dist = tf.contrib.distributions.Normal(
+        loc=tf.squeeze(sy_mean_na),
+        scale=tf.exp(sy_logstd_a),
+        validate_args=True)
+
+    # mean and variance BEFORE update (only used for KL diagnostics)
+    sy_oldmean_na = tf.placeholder(shape=[None, ac_dim],
+                                   name='oldmean', dtype=tf.float32)
+    sy_oldlogstd_a = tf.placeholder(shape=[ac_di],
+                                    name='oldlogstd', dtype=tf.float32)
+    sy_oldac_dist = tf.contrib.distributions.Normal(
+        loc=tf.squeeze(sy_oldmean_na),
+        scale=tf.exp(sy_oldlogstd_a),
+        validate_args=True)
+
+    # sampled actions, used for defining policy (NOT computing policy gradient)
+    sy_sampled_ac = sy_ac_dist.sample(
+        sample_shape=[ac_dim],
+        name='sy_sampled_ac'
+    )
+    # log-prob of actions taken -- used for policy gradient calculation
+    sy_logprob_n = sy_ac_dist.log_pdf(sy_ac_n)
+
+    # The following quantities are just used for diagnostics purposes
+    # (e.g. for computing KL and entropy)
+
+    sy_kl = tf.reduce_mean(
+        tf.contrib.distributions.kl(sy_ac_dist, sy_oldac_dist))
+    sy_ent = tf.reduce_mean(sy_ac_dist.entropy())
 
     sy_surr = - tf.reduce_mean(sy_adv_n * sy_logprob_n) # Loss function that we'll differentiate to get the policy gradient ("surr" is for "surrogate loss")
 
