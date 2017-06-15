@@ -221,7 +221,7 @@ def main_pendulum(logdir, seed, n_iter, gamma, min_timesteps_per_batch, initial_
     elif vf_type == 'nn':
         vf = NnValueFunction(ob_dim=ob_dim, **vf_params)
 
-    sy_ob_no = tf.placeholder(shape=[None ob_dim], name="ob", dtype=tf.float32)
+    sy_ob_no = tf.placeholder(shape=[None, ob_dim], name="ob", dtype=tf.float32)
     # actions batch taken by the policy, used for policy gradient computation
     sy_ac_n = tf.placeholder(shape=[None], name="ac", dtype=tf.float32)
     # advantage function estimate
@@ -238,22 +238,22 @@ def main_pendulum(logdir, seed, n_iter, gamma, min_timesteps_per_batch, initial_
     sy_mean_na = dense(sy_h2, ac_dim, name="final",
                        weight_init=normc_initializer(0.1))
     # Variance
-    sy_logstd_a = tf.get_variable("logstdev", [ac_dim],
-                                  initializer=tf.zeros_initializer)
+    sy_logstd_na = tf.get_variable("logstdev", [ac_dim],
+                                   initializer=tf.zeros_initializer())
 
     sy_ac_dist = tf.contrib.distributions.Normal(
-        loc=tf.squeeze(sy_mean_na),
-        scale=tf.exp(sy_logstd_a),
+        mu=tf.squeeze(sy_mean_na),
+        sigma=tf.exp(sy_logstd_na),
         validate_args=True)
 
     # mean and variance BEFORE update (only used for KL diagnostics)
     sy_oldmean_na = tf.placeholder(shape=[None, ac_dim],
                                    name='oldmean', dtype=tf.float32)
-    sy_oldlogstd_a = tf.placeholder(shape=[ac_di],
-                                    name='oldlogstd', dtype=tf.float32)
+    sy_oldlogstd_na = tf.placeholder(shape=[ac_dim],
+                                     name='oldlogstd', dtype=tf.float32)
     sy_oldac_dist = tf.contrib.distributions.Normal(
-        loc=tf.squeeze(sy_oldmean_na),
-        scale=tf.exp(sy_oldlogstd_a),
+        mu=tf.squeeze(sy_oldmean_na),
+        sigma=tf.exp(sy_oldlogstd_na),
         validate_args=True)
 
     # sampled actions, used for defining policy (NOT computing policy gradient)
@@ -298,51 +298,58 @@ def main_pendulum(logdir, seed, n_iter, gamma, min_timesteps_per_batch, initial_
                                     and animate)
 
             while True:
-                if animate_this_episode: env.render()
+                # The env for some reason returns different shape on reset and step
+                observation = observation.reshape(1, observation.shape[0])
                 observations.append(observation)
+
+                if animate_this_episode: env.render()
+
                 action = sess.run(sy_sampled_ac,
-                                  feed_dict={ sy_ob_no: ob[None] })
+                                  feed_dict={ sy_ob_no: observation })
                 actions.append(action)
+
                 observation, reward, done, _ = env.step(action)
                 rewards.append(reward)
 
                 if done: break
 
             path = {
-                "observation" : np.array(obs),
+                "observation" : np.array(observations),
                 "terminated" : terminated,
                 "reward" : np.array(rewards),
-                "action" : np.array(acs)
+                "action" : np.array(actions)
             }
             paths.append(path)
 
             timesteps_this_batch += pathlength(path)
             if timesteps_this_batch > min_timesteps_per_batch:
                 break
+
         total_timesteps += timesteps_this_batch
+
         # Estimate advantage function
         vtargs, vpreds, advs = [], [], []
         for path in paths:
             rew_t = path["reward"]
-            return_t = discount(rew_t, gamma)
-            vpred_t = vf.predict(path["observation"])
+            return_t = discount(rew_t, gamma).squeeze()
+            vpred_t = vf.predict(path["observation"].squeeze())
             adv_t = return_t - vpred_t
             advs.append(adv_t)
             vtargs.append(return_t)
             vpreds.append(vpred_t)
 
         # Build arrays for policy update
-        ob_no = np.concatenate([path["observation"] for path in paths])
-        ac_n = np.concatenate([path["action"] for path in paths])
-        adv_n = np.concatenate(advs)
+        ob_no = np.concatenate([path["observation"] for path in paths]).squeeze()
+        ac_n = np.concatenate([path["action"] for path in paths]).squeeze()
+        adv_n = np.concatenate(advs).squeeze()
         standardized_adv_n = (adv_n - adv_n.mean()) / (adv_n.std() + 1e-8)
-        vtarg_n = np.concatenate(vtargs)
+        vtarg_n = np.concatenate(vtargs).squeeze()
         vpred_n = np.concatenate(vpreds)
         vf.fit(ob_no, vtarg_n)
 
         # Policy update
         _, oldmean_na, oldlogstd_na = sess.run(
-            [ update_op, sy_oldmean_na, sy_oldlogstd_na ],
+            [ update_op, sy_mean_na, sy_logstd_na ],
             feed_dict={
                 sy_ob_no: ob_no,
                 sy_ac_n: ac_n,
@@ -355,7 +362,7 @@ def main_pendulum(logdir, seed, n_iter, gamma, min_timesteps_per_batch, initial_
             feed_dict={
                 sy_ob_no: ob_no,
                 sy_oldmean_na: oldmean_na,
-                sy_oldlogstd_a: oldlogstd_a
+                sy_oldlogstd_na: oldlogstd_na
             })
 
         if kl > desired_kl * 2:
