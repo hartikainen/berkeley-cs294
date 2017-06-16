@@ -90,9 +90,10 @@ class NnValueFunction(object):
             "ob_dim": kwargs.pop('ob_dim', 1),
             "D_out": kwargs.pop('ac_dim', 1),
             "n_epochs": kwargs.pop('n_epochs', 10),
-            "learning_rate": kwargs.pop('learning_rate', 1e-3)
+            "learning_rate": kwargs.pop('stepsize', 1e-3)
         }
 
+        # sample self.preproc to get dimensionality of the output
         self.config["D_in"] = self.preproc(
             np.zeros((1, self.config["ob_dim"]))).shape[1]
 
@@ -121,13 +122,12 @@ class NnValueFunction(object):
         D_out = self.config["D_out"]
 
         h1 = lrelu(dense(X, 32, 'h1',
-                         tf.random_uniform_initializer(-1.0, 1.0)))
+                         tf.random_uniform_initializer(-0.1, 0.1)))
         h2 = lrelu(dense(h1, 64, 'h2',
-                         tf.random_uniform_initializer(-1.0, 1.0)))
-        h3 = lrelu(dense(h2, 64, 'h3',
-                         tf.random_uniform_initializer(-1.0, 1.0)))
-
-        pred = dense(h3, D_out, 'pred',
+                         tf.random_uniform_initializer(-0.1, 0.1)))
+        # h3 = lrelu(dense(h2, 64, 'h3',
+        #                  tf.random_uniform_initializer(-0.1, 0.1)))
+        pred = dense(h2, D_out, 'pred',
                      tf.random_uniform_initializer(-0.1, 0.1))
         pred = tf.reshape(pred, (-1,))
         return pred
@@ -357,7 +357,11 @@ def main_pendulum(logdir, seed, n_iter, gamma, min_timesteps_per_batch, initial_
     sy_stepsize = tf.placeholder(shape=[], dtype=tf.float32) # Symbolic, in case you want to change the stepsize during optimization. (We're not doing that currently)
     update_op = tf.train.AdamOptimizer(sy_stepsize).minimize(sy_surr)
 
-    sess = tf.Session()
+    tf_config = tf.ConfigProto(inter_op_parallelism_threads=1,
+                               intra_op_parallelism_threads=1)
+    # use single thread. on such a small problem, multithreading gives you a slowdown
+    # this way, we can better use multiple cores for different experiments
+    sess = tf.Session(config=tf_config)
     sess.__enter__() # equivalent to `with sess:`
     tf.global_variables_initializer().run() #pylint: disable=E1101
 
@@ -474,17 +478,51 @@ def main_pendulum1(d):
     return main_pendulum(**d)
 
 if __name__ == "__main__":
-    if 1:
-        main_cartpole(logdir=None) # when you want to start collecting results, set the logdir
     if 0:
-        general_params = dict(gamma=0.97, animate=False, min_timesteps_per_batch=2500, n_iter=300, initial_stepsize=1e-3)
+        main_cartpole(logdir=None) # when you want to start collecting results, set the logdir
+    if 1:
+        general_params = dict(gamma=0.97,
+                              animate=False,
+                              min_timesteps_per_batch=2500,
+                              n_iter=300,
+                              initial_stepsize=1e-3)
         params = [
-            dict(logdir='/tmp/ref/linearvf-kl2e-3-seed0', seed=0, desired_kl=2e-3, vf_type='linear', vf_params={}, **general_params),
-            dict(logdir='/tmp/ref/nnvf-kl2e-3-seed0', seed=0, desired_kl=2e-3, vf_type='nn', vf_params=dict(n_epochs=10, stepsize=1e-3), **general_params),
-            dict(logdir='/tmp/ref/linearvf-kl2e-3-seed1', seed=1, desired_kl=2e-3, vf_type='linear', vf_params={}, **general_params),
-            dict(logdir='/tmp/ref/nnvf-kl2e-3-seed1', seed=1, desired_kl=2e-3, vf_type='nn', vf_params=dict(n_epochs=10, stepsize=1e-3), **general_params),
-            dict(logdir='/tmp/ref/linearvf-kl2e-3-seed2', seed=2, desired_kl=2e-3, vf_type='linear', vf_params={}, **general_params),
-            dict(logdir='/tmp/ref/nnvf-kl2e-3-seed2', seed=2, desired_kl=2e-3, vf_type='nn', vf_params=dict(n_epochs=10, stepsize=1e-3), **general_params),
+            dict(logdir='/tmp/ref/linearvf-kl2e-3-seed0',
+                 seed=0,
+                 desired_kl=2e-3,
+                 vf_type='linear',
+                 vf_params={},
+                 **general_params),
+            dict(logdir='/tmp/ref/nnvf-kl2e-3-seed0',
+                 seed=0,
+                 desired_kl=2e-3,
+                 vf_type='nn',
+                 vf_params=dict(n_epochs=10, stepsize=1e-2),
+                 **general_params),
+            dict(logdir='/tmp/ref/linearvf-kl2e-3-seed1',
+                 seed=1,
+                 desired_kl=2e-3,
+                 vf_type='linear',
+                 vf_params={},
+                 **general_params),
+            dict(logdir='/tmp/ref/nnvf-kl2e-3-seed1',
+                 seed=1,
+                 desired_kl=2e-3,
+                 vf_type='nn',
+                 vf_params=dict(n_epochs=10, stepsize=1e-2),
+                 **general_params),
+            dict(logdir='/tmp/ref/linearvf-kl2e-3-seed2',
+                 seed=2,
+                 desired_kl=2e-3,
+                 vf_type='linear',
+                 vf_params={},
+                 **general_params),
+            dict(logdir='/tmp/ref/nnvf-kl2e-3-seed2',
+                 seed=2,
+                 desired_kl=2e-3,
+                 vf_type='nn',
+                 vf_params=dict(n_epochs=10, stepsize=1e-2),
+                 **general_params),
         ]
         import multiprocessing
         p = multiprocessing.Pool()
