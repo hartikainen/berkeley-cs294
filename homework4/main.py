@@ -85,15 +85,96 @@ class LinearValueFunction(object):
         return np.concatenate([np.ones([X.shape[0], 1]), X, np.square(X)/2.0], axis=1)
 
 class NnValueFunction(object):
-    # TODO: YOUR CODE HERE
-    def fit(self, X, y):
-        pass
+    def __init__(self, **kwargs):
+        self.config = {
+            "ob_dim": kwargs.pop('ob_dim', 1),
+            "D_out": kwargs.pop('ac_dim', 1),
+            "n_epochs": kwargs.pop('n_epochs', 10),
+            "learning_rate": kwargs.pop('learning_rate', 1e-3)
+        }
 
-    def predict(self, X):
-        pass
+        self.config["D_in"] = self.preproc(
+            np.zeros((1, self.config["ob_dim"]))).shape[1]
+
+        self.sess = tf.Session()
+
+        with tf.variable_scope("NnValueFunction"):
+            self.build()
+
+            init = tf.global_variables_initializer()
+            self.sess.run(init)
+
+    def build(self):
+        self.add_placeholders()
+        self.pred = self.add_prediction_op()
+        self.loss = self.add_loss_op(self.pred)
+        self.train_op = self.add_training_op(self.loss)
+
+    def add_placeholders(self):
+        D_in, D_out = self.config["D_in"], self.config["D_out"]
+        self.X_ph = tf.placeholder(tf.float32, shape=(None, D_in), name="X")
+        self.y_ph = tf.placeholder(tf.float32, (None), name="y")
+
+    def add_prediction_op(self):
+        X = self.X_ph
+
+        D_out = self.config["D_out"]
+
+        h1 = lrelu(dense(X, 32, 'h1',
+                         tf.random_uniform_initializer(-1.0, 1.0)))
+        h2 = lrelu(dense(h1, 64, 'h2',
+                         tf.random_uniform_initializer(-1.0, 1.0)))
+        h3 = lrelu(dense(h2, 64, 'h3',
+                         tf.random_uniform_initializer(-1.0, 1.0)))
+
+        pred = dense(h3, D_out, 'pred',
+                     tf.random_uniform_initializer(-0.1, 0.1))
+        pred = tf.reshape(pred, (-1,))
+        return pred
+
+    def add_loss_op(self, y_pred):
+        loss = tf.nn.l2_loss(y_pred - self.y_ph)
+        return loss
+
+
+    def add_training_op(self, loss):
+        lr = self.config["learning_rate"]
+        optimizer = tf.train.AdamOptimizer(lr)
+        train_op = optimizer.minimize(loss)
+        return train_op
+
 
     def preproc(self, X):
-        pass
+        N_in = X.shape[0]
+        Xp = np.concatenate(
+            [np.ones([N_in, 1]), X, np.square(X)/2.0],
+            axis=1
+        )
+
+        return Xp
+
+    def fit(self, X, y):
+        Xp = self.preproc(X)
+
+        for epoch in range(1, self.config["n_epochs"]+1):
+            self.sess.run(
+                self.train_op,
+                feed_dict={
+                    self.X_ph: Xp,
+                    self.y_ph: y
+                }
+            )
+
+
+    def predict(self, X):
+        Xp = self.preproc(X)
+
+        preds = self.sess.run(
+            self.pred,
+            feed_dict={ self.X_ph: Xp }
+        )
+
+        return preds
 
 def lrelu(x, leak=0.2):
     f1 = 0.5 * (1 + leak)
@@ -215,6 +296,7 @@ def main_pendulum(logdir, seed, n_iter, gamma, min_timesteps_per_batch, initial_
     env = gym.make("Pendulum-v0")
     ob_dim = env.observation_space.shape[0]
     ac_dim = env.action_space.shape[0]
+
     logz.configure_output_dir(logdir)
     if vf_type == 'linear':
         vf = LinearValueFunction(**vf_params)
@@ -332,7 +414,7 @@ def main_pendulum(logdir, seed, n_iter, gamma, min_timesteps_per_batch, initial_
         for path in paths:
             rew_t = path["reward"]
             return_t = discount(rew_t, gamma).squeeze()
-            vpred_t = vf.predict(path["observation"].squeeze())
+            vpred_t = vf.predict(path["observation"].squeeze()).squeeze()
             adv_t = return_t - vpred_t
             advs.append(adv_t)
             vtargs.append(return_t)
@@ -343,7 +425,7 @@ def main_pendulum(logdir, seed, n_iter, gamma, min_timesteps_per_batch, initial_
         ac_n = np.concatenate([path["action"] for path in paths]).squeeze()
         adv_n = np.concatenate(advs).squeeze()
         standardized_adv_n = (adv_n - adv_n.mean()) / (adv_n.std() + 1e-8)
-        vtarg_n = np.concatenate(vtargs).squeeze()
+        vtarg_n = np.concatenate(vtargs)
         vpred_n = np.concatenate(vpreds)
         vf.fit(ob_no, vtarg_n)
 
