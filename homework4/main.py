@@ -122,9 +122,9 @@ class NnValueFunction(object):
         D_out = self.config["D_out"]
 
         h1 = lrelu(dense(X, 32, 'h1',
-                         tf.random_uniform_initializer(-0.1, 0.1)))
-        h2 = lrelu(dense(h1, 64, 'h2',
-                         tf.random_uniform_initializer(-0.1, 0.1)))
+                         tf.contrib.layers.xavier_initializer()))
+        h2 = lrelu(dense(h1, 32, 'h2',
+                         tf.contrib.layers.xavier_initializer()))
         # h3 = lrelu(dense(h2, 64, 'h3',
         #                  tf.random_uniform_initializer(-0.1, 0.1)))
         pred = dense(h2, D_out, 'pred',
@@ -497,7 +497,7 @@ if __name__ == "__main__":
                  seed=0,
                  desired_kl=2e-3,
                  vf_type='nn',
-                 vf_params=dict(n_epochs=10, stepsize=1e-2),
+                 vf_params=dict(n_epochs=10, stepsize=1e-3),
                  **general_params),
             dict(logdir='/tmp/ref/linearvf-kl2e-3-seed1',
                  seed=1,
@@ -509,7 +509,7 @@ if __name__ == "__main__":
                  seed=1,
                  desired_kl=2e-3,
                  vf_type='nn',
-                 vf_params=dict(n_epochs=10, stepsize=1e-2),
+                 vf_params=dict(n_epochs=10, stepsize=1e-3),
                  **general_params),
             dict(logdir='/tmp/ref/linearvf-kl2e-3-seed2',
                  seed=2,
@@ -521,9 +521,9 @@ if __name__ == "__main__":
                  seed=2,
                  desired_kl=2e-3,
                  vf_type='nn',
-                 vf_params=dict(n_epochs=10, stepsize=1e-2),
+                 vf_params=dict(n_epochs=10, stepsize=1e-3),
                  **general_params),
         ]
         import multiprocessing
-        p = multiprocessing.Pool()
-        p.map(main_pendulum1, params)
+        pool = multiprocessing.Pool()
+        pool.map(main_pendulum1, params)
