@@ -183,12 +183,17 @@ def lrelu(x, leak=0.2):
 
 
 
-def main_cartpole(n_iter=100, gamma=1.0, min_timesteps_per_batch=1000, stepsize=1e-2, animate=True, logdir=None):
+def main_cartpole(logdir, seed, n_iter, gamma, min_timesteps_per_batch, vf_type, vf_params, stepsize=1e-2, animate=True):
+    tf.set_random_seed(seed)
+    np.random.seed(seed)
     env = gym.make("CartPole-v0")
     ob_dim = env.observation_space.shape[0]
     num_actions = env.action_space.n
     logz.configure_output_dir(logdir)
-    vf = LinearValueFunction()
+    if vf_type == 'linear':
+        vf = LinearValueFunction(**vf_params)
+    elif vf_type == 'nn':
+        vf = NnValueFunction(ob_dim=ob_dim, **vf_params)
 
     # Symbolic variables have the prefix sy_, to distinguish them from the numerical values
     # that are computed later in these function
@@ -473,57 +478,67 @@ def main_pendulum(logdir, seed, n_iter, gamma, min_timesteps_per_batch, initial_
         # Note that we fit value function AFTER using it to compute the advantage function to avoid introducing bias
         logz.dump_tabular()
 
+def main_cartpole1(d):
+    return main_cartpole(**d)
 
 def main_pendulum1(d):
     return main_pendulum(**d)
 
 if __name__ == "__main__":
-    if 0:
-        main_cartpole(logdir=None) # when you want to start collecting results, set the logdir
-    if 1:
-        general_params = dict(gamma=0.97,
-                              animate=False,
-                              min_timesteps_per_batch=2500,
-                              n_iter=300,
-                              initial_stepsize=1e-3)
-        params = [
-            dict(logdir='/tmp/ref/linearvf-kl2e-3-seed0',
-                 seed=0,
-                 desired_kl=2e-3,
-                 vf_type='linear',
-                 vf_params={},
-                 **general_params),
-            dict(logdir='/tmp/ref/nnvf-kl2e-3-seed0',
-                 seed=0,
-                 desired_kl=2e-3,
-                 vf_type='nn',
-                 vf_params=dict(n_epochs=10, stepsize=1e-3),
-                 **general_params),
-            dict(logdir='/tmp/ref/linearvf-kl2e-3-seed1',
-                 seed=1,
-                 desired_kl=2e-3,
-                 vf_type='linear',
-                 vf_params={},
-                 **general_params),
-            dict(logdir='/tmp/ref/nnvf-kl2e-3-seed1',
-                 seed=1,
-                 desired_kl=2e-3,
-                 vf_type='nn',
-                 vf_params=dict(n_epochs=10, stepsize=1e-3),
-                 **general_params),
-            dict(logdir='/tmp/ref/linearvf-kl2e-3-seed2',
-                 seed=2,
-                 desired_kl=2e-3,
-                 vf_type='linear',
-                 vf_params={},
-                 **general_params),
-            dict(logdir='/tmp/ref/nnvf-kl2e-3-seed2',
-                 seed=2,
-                 desired_kl=2e-3,
-                 vf_type='nn',
-                 vf_params=dict(n_epochs=10, stepsize=1e-3),
-                 **general_params),
-        ]
-        import multiprocessing
-        pool = multiprocessing.Pool()
-        pool.map(main_pendulum1, params)
+    task = "cartpole"
+
+    if task == "pendulum":
+        general_params = {
+            "gamma": 0.97,
+            "animate": False,
+            "min_timesteps_per_batch": 2500,
+            "n_iter": 300,
+            "desired_kl": 2e-3,
+            "initial_stepsize": 1e-3
+        }
+    elif task == "cartpole":
+        general_params = {
+            "gamma": 1.0,
+            "animate": False,
+            "n_iter": 100,
+            "min_timesteps_per_batch": 1000,
+            "stepsize": 1e-2
+        }
+
+    params = [
+        dict(logdir='/tmp/ref/{}-linearvf-kl2e-3-seed0'.format(task),
+             seed=0,
+             vf_type='linear',
+             vf_params={},
+             **general_params),
+        dict(logdir='/tmp/ref/{}-nnvf-kl2e-3-seed0'.format(task),
+             seed=0,
+             vf_type='nn',
+             vf_params=dict(n_epochs=10, stepsize=1e-3),
+             **general_params),
+        dict(logdir='/tmp/ref/{}-linearvf-kl2e-3-seed1'.format(task),
+             seed=1,
+             vf_type='linear',
+             vf_params={},
+             **general_params),
+        dict(logdir='/tmp/ref/{}-nnvf-kl2e-3-seed1'.format(task),
+             seed=1,
+             vf_type='nn',
+             vf_params=dict(n_epochs=10, stepsize=1e-3),
+             **general_params),
+        dict(logdir='/tmp/ref/{}-linearvf-kl2e-3-seed2'.format(task),
+             seed=2,
+             vf_type='linear',
+             vf_params={},
+             **general_params),
+        dict(logdir='/tmp/ref/{}-nnvf-kl2e-3-seed2'.format(task),
+             seed=2,
+             vf_type='nn',
+             vf_params=dict(n_epochs=10, stepsize=1e-3),
+             **general_params),
+    ]
+
+    task_fn = main_cartpole1 if task == "cartpole" else main_pendulum1
+    import multiprocessing
+    pool = multiprocessing.Pool()
+    pool.map(task_fn, params)
