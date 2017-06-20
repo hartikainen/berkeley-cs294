@@ -9,43 +9,10 @@ import tensorflow as tf
 import gym
 
 import models
-from helpers import train_test_val_split
+from helpers import (
+    train_test_val_split, dump_results, AVAILABLE_ENVS, LOG_LEVELS
+)
 from load_policy import load_policy
-
-
-AVAILABLE_ENVS = (
-    'Ant-v1',
-    'HalfCheetah-v1',
-    'Hopper-v1',
-    'Humanoid-v1',
-    'Reacher-v1',
-    'Walker2d-v1'
-)
-
-LOG_LEVELS = (
-    tf.logging.ERROR,
-    tf.logging.INFO,
-    tf.logging.WARN,
-    tf.logging.ERROR,
-    tf.logging.FATAL
-)
-
-def dump_results(results_file, args, returns):
-    new_result = args.copy()
-    new_result["returns"] = returns
-    new_result["timestamp"] = datetime.now().isoformat()
-
-    data = []
-    try:
-        with open(results_file, "r") as f:
-            data = json.load(f)
-    except FileNotFoundError:
-        pass
-    finally:
-        data.append(new_result)
-        with open(results_file, "w") as f:
-            json.dump(data, f, sort_keys=True,
-                      indent=4, separators=(',', ': '))
 
 
 def get_expert_data_file(env, num_rollouts):
@@ -54,6 +21,7 @@ def get_expert_data_file(env, num_rollouts):
 
 def get_expert_policy_file(env):
     return "./experts/{}.pkl".format(env)
+
 
 def get_model_dir(model_fn, env):
     model_name = model_fn.replace("create_", "")
@@ -177,7 +145,6 @@ def train_model(model, data):
 
 def evaluate_model(model, data, env, num_rollouts, expert_policy_file,
                    max_timesteps=None, render=False):
-    env = gym.make(env)
     expert_policy = load_policy(expert_policy_file)
 
     returns = []
@@ -227,21 +194,24 @@ if __name__ == "__main__":
 
     D_in, D_out = data["X_train"].shape[-1], data["y_train"].shape[-1]
 
+    env = gym.make(args["env"])
+
     model_fn = getattr(models, args["model_fn"])
     model_dir = get_model_dir(args['model_fn'], args['env'])
     model = model_fn(D_in, D_out, model_dir=model_dir)
 
     if args['mode'] == "train":
         returns = train_model(model, data)
-
     elif args['mode'] == "evaluate":
-        returns = evaluate_model(model, data, env=args['env'],
+        returns = evaluate_model(model, data, env=env,
                                  num_rollouts=args['num_rollouts'],
                                  max_timesteps=args['max_timesteps'],
                                  expert_policy_file=args['expert_policy_file'])
 
         if args.get('results_file', None) is not None:
-            dump_results(args['results_file'], args, returns)
+            results = args.copy()
+            results["returns"] = returns
+            dump_results(args['results_file'], results)
         else:
             print('returns', returns)
             print('mean return', np.mean(returns))

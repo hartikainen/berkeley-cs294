@@ -388,7 +388,8 @@ def main_pendulum(logdir, seed, n_iter, gamma, min_timesteps_per_batch, initial_
                                     and (i % 10 == 0)
                                     and animate)
 
-            while True:
+            done = False
+            while not done:
                 # The env for some reason returns different shape on reset and step
                 observation = observation.reshape(1, observation.shape[0])
                 observations.append(observation)
@@ -401,8 +402,6 @@ def main_pendulum(logdir, seed, n_iter, gamma, min_timesteps_per_batch, initial_
 
                 observation, reward, done, _ = env.step(action)
                 rewards.append(reward)
-
-                if done: break
 
             path = {
                 "observation" : np.array(observations),

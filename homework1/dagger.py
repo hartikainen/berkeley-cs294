@@ -151,21 +151,27 @@ def evaluate_model(model, data, env, expert_policy, num_rollouts,
         max_timesteps = env.spec.timestep_limit
 
     returns = []
+    observations = []
+    expert_actions = []
 
     with tf.Session():
         for rollout in range(1, num_rollouts+1):
-            obs = env.reset()
+            observation = env.reset()
             done = False
             rollout_reward = 0.0
             steps = 0
 
             while not done and steps < max_timesteps:
-                obs = np.array(obs)
+                observation = np.array(observation)
 
-                action = model.predict(x=obs[None, :], as_iterable=False)
-                expert_action = expert_policy(obs[None, :])
+                action = model.predict(x=observation[None, :],
+                                       as_iterable=False)
+                expert_action = expert_policy(observation[None, :])
 
-                obs, reward, done, _ = env.step(action)
+                observations.append(observation)
+                expert_actions.append(expert_action) # expert labeling
+                observation, reward, done, _ = env.step(action)
+
 
                 rollout_reward += reward
                 steps += 1
@@ -183,6 +189,7 @@ def dagger(env, model, expert_policy, num_rollouts, N=10):
     train_prop, val_prop, test_prop = 16/20, 4/20, 0/20
 
     for i in range(N):
+        print("DAgger i={}".format(i))
         data = train_test_val_split(X, y, train_prop, val_prop, test_prop)
         # TODO: X_train, y_train should be the expert data,
         # observed data for testing
@@ -199,7 +206,9 @@ if __name__ == "__main__":
     observations, actions = load_expert_data(args['expert_data_file'])
     expert_data = { "X": observations, "y": actions }
 
-    D_in, D_out = data["X_train"].shape[-1], data["y_train"].shape[-1]
+    D_in, D_out = expert_data["X"].shape[-1], expert_data["y"].shape[-1]
+
+    env = gym.make(args["env"])
 
     model_fn = getattr(models, args["model_fn"])
     model_dir = get_model_dir(args['model_fn'], args['env'])

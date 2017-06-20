@@ -1,7 +1,41 @@
+import numpy as np
+import tensorflow as tf
+from sklearn.model_selection import train_test_split
+
 EPS = 1e-8 # epsilon constant for numeric stability
 
-import numpy as np
-from sklearn.model_selection import train_test_split
+
+
+AVAILABLE_ENVS = (
+    'Ant-v1',
+    'HalfCheetah-v1',
+    'Hopper-v1',
+    'Humanoid-v1',
+    'Reacher-v1',
+    'Walker2d-v1'
+)
+
+LOG_LEVELS = (
+    tf.logging.ERROR,
+    tf.logging.INFO,
+    tf.logging.WARN,
+    tf.logging.ERROR,
+    tf.logging.FATAL
+)
+
+
+def dump_results(results_file, results):
+    data = []
+    try:
+        with open(results_file, "r") as f:
+            data = json.load(f)
+    except FileNotFoundError:
+        pass
+    finally:
+        data.append(results)
+        with open(results_file, "w") as f:
+            json.dump(data, f, sort_keys=True,
+                      indent=4, separators=(',', ': '))
 
 
 def train_test_val_split(X, y,
