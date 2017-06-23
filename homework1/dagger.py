@@ -181,7 +181,7 @@ def evaluate_model(model, data, env, expert_policy, num_rollouts,
 
             returns.append(rollout_reward)
 
-    return returns
+    return returns, observations, expert_actions
 
 
 def dagger(env, model, expert_policy, num_rollouts, N=10):
@@ -191,11 +191,15 @@ def dagger(env, model, expert_policy, num_rollouts, N=10):
     for i in range(N):
         print("DAgger i={}".format(i))
         data = train_test_val_split(X, y, train_prop, val_prop, test_prop)
-        # TODO: X_train, y_train should be the expert data,
-        # observed data for testing
+
         train_model(model, data, epochs=1, batch_size=32)
 
-        evaluate_model(model, data, env, expert_policy, num_rollouts)
+        returns, observations, expert_actions = evaluate_model(
+            model, data, env, expert_policy, num_rollouts
+        )
+
+        X = np.concat(X, observations)
+        y = np.concat(y, expert_actions)
 
 
 if __name__ == "__main__":
