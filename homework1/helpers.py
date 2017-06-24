@@ -1,3 +1,6 @@
+import json
+import pickle
+
 import numpy as np
 import tensorflow as tf
 from sklearn.model_selection import train_test_split
@@ -107,4 +110,22 @@ def train_test_val_split(X, y,
     }
 
     return data
+
+def load_expert_data(filename, verbose=False):
+    """ Load the expert data from pickle saved in filename"""
+
+    expert_data = None
+    with open(filename, "rb") as f:
+        expert_data = pickle.load(f)
+
+    observations = expert_data["observations"].astype('float32')
+    actions = np.squeeze(expert_data["actions"].astype('float32'))
+
+    if verbose:
+        # As a sanity check, print out the size of the training and test data.
+        print('observations shape: ', observations.shape)
+        print('actions shape: ', actions.shape)
+
+    return observations, actions
+
 

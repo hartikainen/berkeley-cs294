@@ -1,5 +1,3 @@
-import json
-import pickle
 import argparse
 from distutils.util import strtobool
 from datetime import datetime
@@ -10,7 +8,8 @@ import gym
 
 import models
 from helpers import (
-    train_test_val_split, dump_results, AVAILABLE_ENVS, LOG_LEVELS
+    train_test_val_split, dump_results, AVAILABLE_ENVS, LOG_LEVELS,
+    load_expert_data
 )
 from load_policy import load_policy
 
@@ -69,32 +68,14 @@ def parse_args():
 
     args = vars(parser.parse_args())
 
-    if args.get('expert_data_file', None) is None:
+    if args.get('expert_data_file') is None:
         args['expert_data_file'] = get_expert_data_file(args['env'],
                                                         args['num_rollouts'])
 
-    if args.get('expert_policy_file', None) is None:
+    if args.get('expert_policy_file') is None:
         args['expert_policy_file'] = get_expert_policy_file(args['env'])
 
     return args
-
-
-def load_expert_data(filename, verbose=False):
-    """ Load the expert data from pickle saved in filename"""
-
-    expert_data = None
-    with open(filename, "rb") as f:
-        expert_data = pickle.load(f)
-
-    observations = expert_data["observations"].astype('float32')
-    actions = np.squeeze(expert_data["actions"].astype('float32'))
-
-    if verbose:
-        # As a sanity check, print out the size of the training and test data.
-        print('observations shape: ', observations.shape)
-        print('actions shape: ', actions.shape)
-
-    return observations, actions
 
 
 def init_monitors(X, y, every_n_steps=50, early_stopping_rounds=500):
@@ -139,7 +120,8 @@ def train_model(model, data):
         x=X_train,
         y=y_train,
         monitors=monitors,
-        steps=batches_per_epoch * MAX_EPOCHS
+        steps=batches_per_epoch * MAX_EPOCHS,
+        batch_size=batch_size
     )
 
 
@@ -208,7 +190,7 @@ if __name__ == "__main__":
                                  max_timesteps=args['max_timesteps'],
                                  expert_policy_file=args['expert_policy_file'])
 
-        if args.get('results_file', None) is not None:
+        if args.get('results_file') is not None:
             results = args.copy()
             results["returns"] = returns
             dump_results(args['results_file'], results)

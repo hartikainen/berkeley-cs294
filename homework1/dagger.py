@@ -1,5 +1,3 @@
-import json
-import pickle
 import argparse
 from distutils.util import strtobool
 from datetime import datetime
@@ -10,7 +8,8 @@ import gym
 
 import models
 from helpers import (
-    train_test_val_split, dump_results, AVAILABLE_ENVS, LOG_LEVELS
+    train_test_val_split, dump_results, AVAILABLE_ENVS, LOG_LEVELS,
+    load_expert_data
 )
 from load_policy import load_policy
 
@@ -29,7 +28,8 @@ def get_model_dir(model_fn, env):
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Behavioral Cloning")
+    parser = argparse.ArgumentParser(
+        description="DAgger - Dataset Aggregation")
 
     parser.add_argument("--log_level",
                         type=int,
@@ -56,11 +56,6 @@ def parse_args():
                         type=int,
                         default=10,
                         help=("Number of dagger iterations."))
-    parser.add_argument("--mode",
-                        type=str,
-                        choices=["train", "evaluate"],
-                        help=("Mode to run in: train to train a model, "
-                              "evaluate to evaluate ready trained model"))
     parser.add_argument("--model_fn",
                         type=str,
                         default="create_baseline_model",
@@ -68,37 +63,22 @@ def parse_args():
                               "model to be used for training/evaluation"))
     parser.add_argument('--results_file',
                         type=str,
-                        default="./results/behavioral_cloning.json",
+                        default="./results/dagger.json",
                         help="File path to write the results to")
+    parser.add_argument('--expert_data_file',
+                        type=str,
+                        help="File path to read expert data from.")
 
     args = vars(parser.parse_args())
 
-    if args.get('expert_data_file', None) is None:
+    if args.get('expert_data_file') is None:
         args['expert_data_file'] = get_expert_data_file(args['env'],
                                                         args['num_rollouts'])
 
-    if args.get('expert_policy_file', None) is None:
+    if args.get('expert_policy_file') is None:
         args['expert_policy_file'] = get_expert_policy_file(args['env'])
 
     return args
-
-
-def load_expert_data(filename, verbose=False):
-    """ Load the expert data from pickle saved in filename"""
-
-    expert_data = None
-    with open(filename, "rb") as f:
-        expert_data = pickle.load(f)
-
-    observations = expert_data["observations"].astype('float32')
-    actions = np.squeeze(expert_data["actions"].astype('float32'))
-
-    if verbose:
-        # As a sanity check, print out the size of the training and test data.
-        print('observations shape: ', observations.shape)
-        print('actions shape: ', actions.shape)
-
-    return observations, actions
 
 
 def init_monitors(X, y, every_n_steps=50, early_stopping_rounds=500):
@@ -134,6 +114,7 @@ def train_model(model, data, epochs=1, batch_size=32):
 
     batches_per_epoch = int(N_train/batch_size)
 
+
     monitors = init_monitors(X_val, y_val)
 
     model.fit(
@@ -141,7 +122,8 @@ def train_model(model, data, epochs=1, batch_size=32):
         x=X_train,
         y=y_train,
         monitors=monitors,
-        steps=batches_per_epoch * epochs
+        steps=batches_per_epoch * epochs,
+        batch_size=batch_size
     )
 
 
@@ -181,12 +163,17 @@ def evaluate_model(model, data, env, expert_policy, num_rollouts,
 
             returns.append(rollout_reward)
 
+    observations = np.array(observations, dtype=np.float32)
+    expert_actions = np.array(expert_actions, dtype=np.float32).squeeze()
+
     return returns, observations, expert_actions
 
 
-def dagger(env, model, expert_policy, num_rollouts, N=10):
+def dagger(env, model, expert_policy, num_rollouts, max_timesteps, N=10):
     X, y = expert_data["X"], expert_data["y"]
     train_prop, val_prop, test_prop = 16/20, 4/20, 0/20
+
+    all_returns = []
 
     for i in range(N):
         print("DAgger i={}".format(i))
@@ -195,11 +182,15 @@ def dagger(env, model, expert_policy, num_rollouts, N=10):
         train_model(model, data, epochs=1, batch_size=32)
 
         returns, observations, expert_actions = evaluate_model(
-            model, data, env, expert_policy, num_rollouts
+            model, data, env, expert_policy, num_rollouts, max_timesteps
         )
 
-        X = np.concat(X, observations)
-        y = np.concat(y, expert_actions)
+        all_returns.append(returns)
+
+        X = np.vstack((X, observations))
+        y = np.vstack((y, expert_actions))
+
+    return all_returns
 
 
 if __name__ == "__main__":
@@ -224,4 +215,15 @@ if __name__ == "__main__":
     N = args["dagger_N"]
     num_rollouts = args["num_rollouts"]
 
-    dagger(env, model, expert_policy, num_rollouts, N)
+    max_timesteps = args["max_timesteps"]
+
+    returns = dagger(env, model, expert_policy, num_rollouts, max_timesteps, N)
+
+    if args.get('results_file') is not None:
+        results = args.copy()
+        results["returns"] = returns
+        dump_results(args['results_file'], results)
+    else:
+        print('returns', returns)
+        print('mean returns', map(np.mean, returns))
+        print('std of returns', map(np.std, returns))
