@@ -24,7 +24,10 @@ def get_expert_policy_file(env):
 
 def get_model_dir(model_fn, env):
     model_name = model_fn.replace("create_", "")
-    return models.MODEL_DIR_BASE + "/{}-{}".format(model_name, env)
+    return (
+        models.MODEL_DIR_BASE
+        + "/behavioral_cloning-{}-{}".format(model_name, env)
+    )
 
 
 def parse_args():
