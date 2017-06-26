@@ -114,7 +114,6 @@ def train_model(model, data, epochs=1, batch_size=32):
 
     batches_per_epoch = int(N_train/batch_size)
 
-
     monitors = init_monitors(X_val, y_val)
 
     model.fit(

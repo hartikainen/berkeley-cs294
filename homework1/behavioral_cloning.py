@@ -54,11 +54,6 @@ def parse_args():
                         type=int,
                         help=("Maximum number of steps to run environment for "
                               "each rollout"))
-    parser.add_argument("--mode",
-                        type=str,
-                        choices=["train", "evaluate"],
-                        help=("Mode to run in: train to train a model, "
-                              "evaluate to evaluate ready trained model"))
     parser.add_argument("--model_fn",
                         type=str,
                         default="create_baseline_model",
@@ -105,16 +100,14 @@ def input_fn(X, y):
     return feature_cols, labels
 
 
-def train_model(model, data):
+def train_model(model, data, epochs=1, batch_size=32):
     X_train, y_train = data["X_train"], data["y_train"]
     X_val,   y_val =   data["X_val"],   data["y_val"]
 
     N_train = X_train.shape[0]
     D_out = y_train.shape[-1]
 
-    BATCH_SIZE = 32
-    MAX_EPOCHS = 5
-    batches_per_epoch = int(N_train/BATCH_SIZE)
+    batches_per_epoch = int(N_train/batch_size)
 
     monitors = init_monitors(X_val, y_val)
 
@@ -123,32 +116,38 @@ def train_model(model, data):
         x=X_train,
         y=y_train,
         monitors=monitors,
-        steps=batches_per_epoch * MAX_EPOCHS,
+        steps=batches_per_epoch * epochs,
         batch_size=batch_size
     )
 
 
-def evaluate_model(model, data, env, num_rollouts, expert_policy_file,
+def evaluate_model(model, data, env, expert_policy, num_rollouts,
                    max_timesteps=None, render=False):
-    expert_policy = load_policy(expert_policy_file)
+    if max_timesteps is None:
+        max_timesteps = env.spec.timestep_limit
 
     returns = []
-
-    if max_timesteps is None: max_timesteps = env.spec.timestep_limit
+    observations = []
+    expert_actions = []
 
     with tf.Session():
-        for r in range(1, num_rollouts+1):
-            obs = env.reset()
+        for rollout in range(1, num_rollouts+1):
+            observation = env.reset()
             done = False
             rollout_reward = 0.0
             steps = 0
 
             while not done and steps < max_timesteps:
-                obs = np.array(obs)
+                observation = np.array(observation)
 
-                action = model.predict(x=obs[None, :], as_iterable=False)
+                action = model.predict(x=observation[None, :],
+                                       as_iterable=False)
+                expert_action = expert_policy(observation[None, :])
 
-                obs, reward, done, _ = env.step(action)
+                observations.append(observation)
+                expert_actions.append(expert_action) # expert labeling
+                observation, reward, done, _ = env.step(action)
+
 
                 rollout_reward += reward
                 steps += 1
@@ -158,7 +157,10 @@ def evaluate_model(model, data, env, num_rollouts, expert_policy_file,
 
             returns.append(rollout_reward)
 
-    return returns
+    observations = np.array(observations, dtype=np.float32)
+    expert_actions = np.array(expert_actions, dtype=np.float32).squeeze()
+
+    return returns, observations, expert_actions
 
 
 if __name__ == "__main__":
@@ -185,20 +187,24 @@ if __name__ == "__main__":
     model_dir = get_model_dir(args['model_fn'], args['env'])
     model = model_fn(D_in, D_out, model_dir=model_dir)
 
-    if args['mode'] == "train":
-        returns = train_model(model, data)
-    elif args['mode'] == "evaluate":
-        returns = evaluate_model(model, data, env=env,
-                                 num_rollouts=args['num_rollouts'],
-                                 max_timesteps=args['max_timesteps'],
-                                 expert_policy_file=args['expert_policy_file'])
+    train_model(model, data, env, epochs=5, batch_size=32)
 
-        if args.get('results_file') is not None:
-            results = args.copy()
-            results["returns"] = returns
-            results["timestamp"] = datetime.now().isoformat()
-            dump_results(args['results_file'], results)
-        else:
-            print('returns', returns)
-            print('mean return', np.mean(returns))
-            print('std of return', np.std(returns))
+    expert_policy_file = args['expert_policy_file']
+    expert_policy = load_policy(expert_policy_file)
+
+    num_rollouts = args['num_rollouts']
+    max_timesteps = args['max_timesteps']
+
+    returns, observations, expert_actions = evaluate_model(
+        model, data, env, expert_policy, num_rollouts, max_timesteps,
+        render=args['render'])
+
+    if args.get('results_file') is not None:
+        results = args.copy()
+        results["returns"] = returns
+        results["timestamp"] = datetime.now().isoformat()
+        dump_results(args['results_file'], results)
+    else:
+        print('returns', returns)
+        print('mean return', np.mean(returns))
+        print('std of return', np.std(returns))
