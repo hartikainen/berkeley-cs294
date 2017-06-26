@@ -18,22 +18,7 @@ import tf_util
 import gym
 import load_policy
 
-def dump_results(results_file, args, returns):
-    new_result = vars(args).copy()
-    new_result["returns"] = returns
-    new_result["timestamp"] = datetime.now().isoformat()
-
-    data = []
-    try:
-        with open(results_file, "r") as f:
-            data = json.load(f)
-    except FileNotFoundError:
-        pass
-    finally:
-        data.append(new_result)
-        with open(results_file, "w") as f:
-            json.dump(data, f, sort_keys=True,
-                      indent=4, separators=(',', ': '))
+from helpers import dump_results
 
 def main():
     import argparse
@@ -44,6 +29,8 @@ def main():
     parser.add_argument("--max_timesteps", type=int)
     parser.add_argument('--num_rollouts', type=int, default=20,
                         help='Number of expert roll outs')
+    parser.add_argument('--results_file', type=str,
+                        help='File path for dumping the results')
     args = parser.parse_args()
 
     print('loading and building expert policy')
@@ -84,8 +71,11 @@ def main():
         print('mean return', np.mean(returns))
         print('std of return', np.std(returns))
 
-        if args.get('results_file', None) is not None:
-            dump_results(args['results_file'], args, returns)
+        if args.results_file is not None:
+            results = vars(args).copy()
+            results['returns'] = returns
+            results["timestamp"] = datetime.now().isoformat()
+            dump_results(args.results_file, results)
 
         expert_data = {'observations': np.array(observations),
                        'actions': np.array(actions)}

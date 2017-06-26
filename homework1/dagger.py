@@ -192,7 +192,6 @@ def dagger(env, model, expert_policy, num_rollouts, max_timesteps, N=10):
 
     return all_returns
 
-
 if __name__ == "__main__":
     args = parse_args()
 
@@ -222,6 +221,7 @@ if __name__ == "__main__":
     if args.get('results_file') is not None:
         results = args.copy()
         results["returns"] = returns
+        results["timestamp"] = datetime.now().isoformat()
         dump_results(args['results_file'], results)
     else:
         print('returns', returns)
