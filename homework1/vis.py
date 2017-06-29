@@ -38,7 +38,7 @@ def plot_dagger(dagger_results, bc_results, expert_results):
     - expert_results: Array of length N, containing results for expert,
       correspoding to the dagger_results
     """
-    for dagger_result, bc_result, expert_results in zip(dagger_results,
+    for dagger_result, bc_result, expert_result in zip(dagger_results,
                                                         bc_results,
                                                         expert_results):
         env_name = dagger_result['env']
@@ -69,21 +69,19 @@ def plot_dagger(dagger_results, bc_results, expert_results):
     return
 
 if __name__ == "__main__":
-
     args = parse_args()
-    expert_result = [
-        x for x in filter(lambda x: x['envname'] == env_name, expert_results)
-    ][0]
-    bc_result = [
-        x for x in filter(lambda x: x['env'] == env_name, bc_results)
-    ][0]
     with open(args['dagger_results'], 'r') as f:
         dagger_results = json.load(f)
+    dagger_results = sorted(dagger_results, key=lambda res: res['env'])
 
     with open(args['expert_results'], 'r') as f:
         expert_results = json.load(f)
+    expert_results = filter(lambda res: res['num_rollouts'] == 10, expert_results)
+    expert_results = sorted(expert_results, key=lambda res: res['envname'])
 
     with open(args['bc_results'], 'r') as f:
         bc_results = json.load(f)
+    bc_results = filter(lambda res: res['num_rollouts'] == 10, bc_results)
+    bc_results = sorted(bc_results, key=lambda res: res['env'])
 
     plot_dagger(dagger_results, bc_results, expert_results)

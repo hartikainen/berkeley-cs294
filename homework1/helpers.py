@@ -60,7 +60,7 @@ def train_test_val_split(X, y,
     N_train = int(np.floor(N_total * train_prop))
     N_val   = int(np.ceil(N_total * val_prop))
     N_test  = N_total - N_train - N_val
-    N_dev   = min(N_dev, N_total)
+    N_dev   = min(N_dev, N_train)
 
     assert(N_train + N_val + N_test == N_total)
 

@@ -59,6 +59,10 @@ def parse_args():
                         default="create_baseline_model",
                         help=("Name of a function in models.py that returns a "
                               "model to be used for training/evaluation"))
+    parser.add_argument("--model_dir",
+                        type=str,
+                        help=("Path to the directory to save/load the model "
+                              "from"))
     parser.add_argument('--results_file',
                         type=str,
                         default="./results/behavioral_cloning.json",
@@ -169,22 +173,18 @@ if __name__ == "__main__":
     tf.logging.set_verbosity(LOG_LEVELS[args['log_level']])
 
     observations, actions = load_expert_data(args['expert_data_file'])
-    train_prop = 16/20
-    val_prop = 3/20
-    test_prop = 1/20
-    N_dev = 500
+    train_prop, val_prop, test_prop = 16/20, 4/20, 0/20
+
     data = train_test_val_split(
         observations, actions,
-        train_prop, val_prop, test_prop, N_dev,
-        verbose=True
-    )
+        train_prop, val_prop, test_prop)
 
     D_in, D_out = data["X_train"].shape[-1], data["y_train"].shape[-1]
 
     env = gym.make(args["env"])
 
     model_fn = getattr(models, args["model_fn"])
-    model_dir = get_model_dir(args['model_fn'], args['env'])
+    model_dir = args['model_dir']
     model = model_fn(D_in, D_out, model_dir=model_dir)
 
     train_model(model, data, epochs=20, batch_size=32)

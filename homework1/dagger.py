@@ -61,6 +61,10 @@ def parse_args():
                         default="create_baseline_model",
                         help=("Name of a function in models.py that returns a "
                               "model to be used for training/evaluation"))
+    parser.add_argument("--model_dir",
+                        type=str,
+                        help=("Path to the directory to save/load the model "
+                              "from"))
     parser.add_argument('--results_file',
                         type=str,
                         default="./results/dagger.json",
@@ -153,7 +157,6 @@ def evaluate_model(model, data, env, expert_policy, num_rollouts,
                 expert_actions.append(expert_action) # expert labeling
                 observation, reward, done, _ = env.step(action)
 
-
                 rollout_reward += reward
                 steps += 1
 
@@ -204,7 +207,7 @@ if __name__ == "__main__":
     env = gym.make(args["env"])
 
     model_fn = getattr(models, args["model_fn"])
-    model_dir = get_model_dir(args['model_fn'], args['env'])
+    model_dir = args["model_dir"]
     model = model_fn(D_in, D_out, model_dir=model_dir)
 
     expert_policy_file = args['expert_policy_file']
