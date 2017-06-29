@@ -178,7 +178,7 @@ def dagger(env, model, expert_policy, num_rollouts, max_timesteps, N=10):
         print("DAgger i={}".format(i))
         data = train_test_val_split(X, y, train_prop, val_prop, test_prop)
 
-        train_model(model, data, epochs=1, batch_size=32)
+        train_model(model, data, epochs=20, batch_size=32)
 
         returns, observations, expert_actions = evaluate_model(
             model, data, env, expert_policy, num_rollouts, max_timesteps

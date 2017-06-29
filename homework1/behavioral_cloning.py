@@ -187,7 +187,7 @@ if __name__ == "__main__":
     model_dir = get_model_dir(args['model_fn'], args['env'])
     model = model_fn(D_in, D_out, model_dir=model_dir)
 
-    train_model(model, data, env, epochs=5, batch_size=32)
+    train_model(model, data, epochs=20, batch_size=32)
 
     expert_policy_file = args['expert_policy_file']
     expert_policy = load_policy(expert_policy_file)
