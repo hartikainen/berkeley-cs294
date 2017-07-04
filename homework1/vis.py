@@ -3,10 +3,19 @@ import json
 import argparse
 
 import matplotlib
-# matplotlib.use(args.mpl_backend)
+matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
 
 import numpy as np
+
+def get_dagger_file(vis_dir, num_rollouts, env_name):
+    vis_path = "{}/dagger-{}-{}.pdf".format(vis_dir, env_name, num_rollouts)
+    return vis_path
+
+def get_bc_file(vis_dir):
+    vis_path = "{}/behavioral_cloning.pdf".format(vis_dir)
+    return vis_path
+
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -24,6 +33,16 @@ def parse_args():
                         type=str,
                         help="Path to the behavioral cloning results file")
 
+    parser.add_argument("--bc_dir",
+                        type=str,
+                        help=("Directory to save the behavioral cloning "
+                              "visualizations to"))
+
+    parser.add_argument("--dagger_dir",
+                        type=str,
+                        help=("Directory to save the DAgger "
+                              "visualizations to"))
+
     parser.add_argument("--num_rollouts",
                         type=int,
                         default=20,
@@ -39,7 +58,7 @@ def parse_args():
     return args
 
 
-def plot_behavioral_cloning(bc_results):
+def plot_behavioral_cloning(bc_results, vis_dir):
     bc_results = sorted(
         sorted(bc_results, key=lambda x: x['num_rollouts']),
         key=lambda x: x['env']
@@ -53,18 +72,24 @@ def plot_behavioral_cloning(bc_results):
         ])
 
         plt.errorbar(rollouts, mean_returns, yerr=std_returns,
-                     fmt='-o', capsize=4, elinewidth=2, label=env)
+                     fmt='-o', capsize=4, elinewidth=1, label=env)
 
-    plt.legend(loc="upper right")
+    plt.legend(loc="lower right", fontsize=6)
     plt.xlabel("mean returns", fontsize=16)
     plt.ylabel("number of rollouts", fontsize=16)
-    plt.suptitle("Behavioral cloning mean rewards against expert rollouts",
-                 fontsize=20)
 
-    plt.show()
+    if vis_dir is not None:
+        vis_file = get_bc_file(vis_dir)
+        plt.savefig(vis_file,
+                    transparent=True,
+                    bbox_inches='tight',
+                    pad_inches=0)
+    else:
+        plt.show()
 
 
-def filter_data(dagger_results, bc_results, expert_results):
+def filter_data(dagger_results, bc_results, expert_results,
+                num_rollouts, dagger_N):
     """ Filters and sorts the data to be used for visualization
 
     Input:
@@ -74,7 +99,7 @@ def filter_data(dagger_results, bc_results, expert_results):
     - dagger_N: number of dagger iterations to filter the data based on
 
     Returns:
-    - dagger_results, expert_results, bc_results: filtered lists of same
+    - dagger_results, expert_results, bc_results: filtered lists, each of same
       length, and each sorted by environment name
     """
     dagger_results = filter(lambda res: (res['num_rollouts'] == num_rollouts
@@ -90,20 +115,12 @@ def filter_data(dagger_results, bc_results, expert_results):
                         bc_results)
     bc_results = sorted(bc_results, key=lambda res: res['env'])
 
-    return dagger_results, expert_results, bc_results
+    return dagger_results, bc_results, expert_results
 
 
 def plot_dagger(dagger_results, bc_results, expert_results,
-                num_rollouts, dagger_N):
+                num_rollouts, dagger_N, vis_dir=None):
     """ DAgger results plot with comparison against BC and expert results
-
-    Input:
-    - dagger_results: Array of length N, containing results for different dagger
-      runs.
-    - bc_results: Array of length N, containing results for behavioral cloning,
-      correspoding to the dagger_results
-    - expert_results: Array of length N, containing results for expert,
-      correspoding to the dagger_results
     """
     dagger_results, bc_results, expert_results = filter_data(dagger_results,
                                                              bc_results,
@@ -111,9 +128,18 @@ def plot_dagger(dagger_results, bc_results, expert_results,
                                                              num_rollouts,
                                                              dagger_N)
 
+    assert(all((dr['env'] == bcr['env'] == er['envname']
+                and (dr['num_rollouts']
+                     == bcr['num_rollouts']
+                     == er['num_rollouts']
+                     == num_rollouts))
+               for dr, bcr, er in zip(dagger_results,
+                                      bc_results,
+                                      expert_results)))
+
     for dagger_result, bc_result, expert_result in zip(dagger_results,
-                                                        bc_results,
-                                                        expert_results):
+                                                       bc_results,
+                                                       expert_results):
         env_name = dagger_result['env']
         expert_data_file = dagger_result['expert_data_file']
 
@@ -125,19 +151,27 @@ def plot_dagger(dagger_results, bc_results, expert_results,
         Ns = range(dagger_N)
 
         plt.errorbar(Ns, mean_returns, yerr=std_returns,
-                     fmt='-o', capsize=4, elinewidth=2)
-        plt.suptitle("DAgger rewards per iteration for {}"
-                     "".format(env_name), fontsize=20)
+                     fmt='-o', capsize=4, elinewidth=1)
 
+        plt.axhline(y=np.mean(expert_result['returns']),
+                    color='k',
+                    label="Expert Policy")
+        plt.axhline(y=np.mean(bc_result['returns']),
+                    color='r',
+                    label="Behaviorial Cloning")
 
-        plt.axhline(y=np.mean(expert_result['returns']), color='k', label="Expert Policy")
-        plt.axhline(y=np.mean(bc_result['returns']), color='r', label="Behaviorial Cloning")
-
-        plt.xlabel("Iteration")
-        plt.ylabel("Mean Reward")
+        plt.xlabel("iteration", fontsize=16)
+        plt.ylabel("mean reward", fontsize=16)
         plt.legend()
 
-        plt.show()
+        if vis_dir is not None:
+            vis_file = get_dagger_file(vis_dir, num_rollouts, env_name)
+            plt.savefig(vis_file,
+                        transparent=True,
+                        bbox_inches='tight',
+                        pad_inches=0)
+        else:
+            plt.show()
 
     return
 
@@ -156,15 +190,9 @@ if __name__ == "__main__":
     with open(args['bc_results'], 'r') as f:
         bc_results = json.load(f)
 
-    plot_behavioral_cloning(bc_results)
+    dagger_dir, bc_dir = args['dagger_dir'], args['bc_dir']
 
-    assert(all((dr['env'] == bcr['env'] == er['envname']
-                and (dr['num_rollouts']
-                     == bcr['num_rollouts']
-                     == er['num_rollouts']))
-               for dr, bcr, er in zip(dagger_results,
-                                      bc_results,
-                                      expert_results)))
+    plot_behavioral_cloning(bc_results, bc_dir)
 
     plot_dagger(dagger_results, bc_results, expert_results,
-                num_rollouts, dagger_N)
+                num_rollouts, dagger_N, dagger_dir)

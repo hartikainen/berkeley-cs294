@@ -171,7 +171,8 @@ def evaluate_model(model, data, env, expert_policy, num_rollouts,
     return returns, observations, expert_actions
 
 
-def dagger(env, model, expert_policy, num_rollouts, max_timesteps, N=10):
+def dagger(env, model, expert_policy, num_rollouts, max_timesteps, N=10,
+           render=False):
     X, y = expert_data["X"], expert_data["y"]
     train_prop, val_prop, test_prop = 16/20, 4/20, 0/20
 
@@ -184,7 +185,8 @@ def dagger(env, model, expert_policy, num_rollouts, max_timesteps, N=10):
         train_model(model, data, epochs=20, batch_size=32)
 
         returns, observations, expert_actions = evaluate_model(
-            model, data, env, expert_policy, num_rollouts, max_timesteps
+            model, data, env, expert_policy, num_rollouts, max_timesteps,
+            render
         )
 
         all_returns.append(returns)
@@ -218,7 +220,10 @@ if __name__ == "__main__":
 
     max_timesteps = args["max_timesteps"]
 
-    returns = dagger(env, model, expert_policy, num_rollouts, max_timesteps, N)
+    render = args["render"]
+
+    returns = dagger(env, model, expert_policy, num_rollouts, max_timesteps, N,
+                     render)
 
     if args.get('results_file') is not None:
         results = args.copy()
