@@ -1,4 +1,3 @@
-import argparse
 from distutils.util import strtobool
 
 import numpy as np
@@ -6,40 +5,17 @@ import tensorflow as tf
 import gym
 
 import models
+import agents
+from utils import parse_args
 
-AVAILABLE_ENVS = (
-    'Ant-v1',
-    'HalfCheetah-v1',
-    'Hopper-v1',
-    'Humanoid-v1',
-    'Reacher-v1',
-    'Walker2d-v1'
-)
+def discount(x, gamma):
+    """
+    Compute discounted sum of future values
 
-DEFAULT_ENV = 'Hopper-v1'
-
-def parse_args():
-    parser = argparse.ArgumentParser(
-        description="DAgger - Dataset Aggregation")
-
-    parser.add_argument("--env",
-                        type=str,
-                        default=DEFAULT_ENV,
-                        choices=AVAILABLE_ENVS,
-                        help="The name of the environment")
-    parser.add_argument("--max_timesteps",
-                        type=int,
-                        default=5e5,
-                        help="Number timesteps to run")
-    parser.add_argument("--model_fn",
-                        type=str,
-                        default="default_model",
-                        help=("Name of a function in models.py that will be "
-                              "used as the model"))
-
-    args = vars(parser.parse_args())
-
-    return args
+    [https://github.com/berkeleydeeprlcourse/homework/blob/master/hw4/main.py]
+    out[i] = in[i] + gamma * in[i+1] + gamma^2 * in[i+2] + ...
+    """
+    return scipy.signal.lfilter([1],[1,-gamma],x[::-1], axis=0)[::-1]
 
 
 def get_available_gpus():
