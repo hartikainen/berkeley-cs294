@@ -35,6 +35,10 @@ def parse_args():
                         default="A3CAgent",
                         help=("Name of a function in agents.py that will be "
                               "used as the agent"))
+    parser.add_argument("--N_parallel_learners",
+                        type=int,
+                        default=2,
+                        help="Number of parallel learners")
 
     args = vars(parser.parse_args())
 

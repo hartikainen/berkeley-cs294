@@ -3,17 +3,16 @@ from operator import mul
 
 import tensorflow as tf
 
-class ModelConfig:
-    D_in = (84, 84, 4)
-    D_action = 1
-    beta = 0.01
-    stride_conv1 = 4
-    N_kernels_conv1 = 16
-    stride_conv2 = 2
-    N_kernels_conv2 = 32
-    D_fc1 = 256
-
-DEFAULT_CONFIG = ModelConfig()
+DEFAULT_MODEL_CONFIG = {
+    "D_in": (84, 84, 4),
+    "D_action": 1,
+    "beta": 0.01,
+    "stride_conv1": 4,
+    "N_kernels_conv1": 16,
+    "stride_conv2": 2,
+    "N_kernels_conv2": 32,
+    "D_fc1": 256,
+}
 
 def conv_variables(shape):
     xavier_init = tf.contrib.layers.xavier_initializer()
@@ -36,8 +35,8 @@ def conv2d(x, W, stride, padding="VALID"):
     return tf.nn.conv2d(x, W, strides=(1, stride, stride, 1), padding=padding)
 
 
-class ActionCriticValueFeedForward:
-    def __init__(self, config=DEFAULT_CONFIG):
+class ActorCriticValueFeedForward:
+    def __init__(self, config=DEFAULT_MODEL_CONFIG.copy()):
         """Initializes the model and builds the tensorflow graph for it.
 
         Args:
@@ -56,8 +55,8 @@ class ActionCriticValueFeedForward:
         actions_ph:
           Actions placeholder tensor of shape (None, D_action), type tf.float32
         """
-        D_in = self.config.D_in
-        D_action = self.config.D_action
+        D_in = self.config["D_in"]
+        D_action = self.config["D_action"]
 
         self.observations_ph = tf.placeholder(
             tf.float32, (None, D_in[0], D_in[1], D_in[2]))
@@ -66,14 +65,14 @@ class ActionCriticValueFeedForward:
         self.rewards_ph = tf.placeholder(tf.float32, [None])
 
     def init_variables(self):
-        D_observation = self.config.D_in[2]
-        D_action = self.config.D_action
+        D_observation = self.config["D_in"][2]
+        D_action = self.config["D_action"]
 
-        stride_conv1 = self.config.stride_conv1
-        N_kernels_conv1 = self.config.N_kernels_conv1
-        stride_conv2 = self.config.stride_conv2
-        N_kernels_conv2 = self.config.N_kernels_conv2
-        D_fc1 = self.config.D_fc1
+        stride_conv1 = self.config["stride_conv1"]
+        N_kernels_conv1 = self.config["N_kernels_conv1"]
+        stride_conv2 = self.config["stride_conv2"]
+        N_kernels_conv2 = self.config["N_kernels_conv2"]
+        D_fc1 = self.config["D_fc1"]
 
         # Initialize variables
         # Convolution layer 1 (stride 4)
@@ -105,8 +104,8 @@ class ActionCriticValueFeedForward:
         """
         observations = self.observations_ph
 
-        stride_conv1 = self.config.stride_conv1
-        stride_conv2 = self.config.stride_conv2
+        stride_conv1 = self.config["stride_conv1"]
+        stride_conv2 = self.config["stride_conv2"]
 
         z_conv1 = (conv2d(observations, self.W_conv1, stride_conv1)
                    + self.b_conv1)
@@ -148,7 +147,9 @@ class ActionCriticValueFeedForward:
         # TODO: should this use tf.nn.softmax_cross_entropy_with_logits?
         entropy = - tf.reduce_sum(pi * log_pi, axis=1)
 
-        self.loss = policy_loss + 0.5 * value_loss + self.config.beta * entropy
+        self.loss = (policy_loss
+                     + 0.5 * value_loss
+                     + self.config["beta"] * entropy)
 
 
     def add_training_op(self, loss):

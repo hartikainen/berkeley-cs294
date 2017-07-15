@@ -1,3 +1,5 @@
+from utils import parse_args
+
 from distutils.util import strtobool
 
 import numpy as np
@@ -6,7 +8,6 @@ import gym
 
 import models
 import agents
-from utils import parse_args
 
 def discount(x, gamma):
     """
@@ -40,24 +41,27 @@ def get_session():
     return session
 
 
-def a3c_learn(env, model_fn, session, max_timesteps):
-    pass
-
-
 def main():
     args = parse_args()
 
 
     seed = 0
-    env = gym.make(args['env'])
+    env_name = args['env']
+    # env = gym.make(args['env'])
     # TODO: set seeds
 
     session = get_session()
     max_timesteps = args['max_timesteps'] or env.spec.timestep_limit
 
-    model_fn = getattr(models, args['model_fn'])
+    ActorCritic = getattr(models, args['ac_model'])
 
-    a3c_learn(env, model_fn, session, max_timesteps)
+    AgentCls = getattr(agents, args['agent'])
+    agent_config = agents.DEFAULT_AGENT_CONFIG.copy()
+
+    ModelCls = getattr(models, args['ac_model'])
+    model_config = models.DEFAULT_MODEL_CONFIG.copy()
+
+    Agent = AgentCls(env_name, ModelCls, agent_config, model_config)
 
 
 if __name__ == "__main__":
