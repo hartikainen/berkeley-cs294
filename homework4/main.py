@@ -259,6 +259,7 @@ def main_cartpole(logdir, seed, n_iter, gamma, min_timesteps_per_batch, vf_type,
             if timesteps_this_batch > min_timesteps_per_batch:
                 break
         total_timesteps += timesteps_this_batch
+
         # Estimate advantage function
         vtargs, vpreds, advs = [], [], []
         for path in paths:

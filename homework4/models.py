@@ -76,21 +76,29 @@ class ActorCriticValueFeedForward:
 
         # Initialize variables
         # Convolution layer 1 (stride 4)
-        self.W_conv1, self.b_conv1 = conv_variables((2*stride_conv1,
+        W_conv1, b_conv1 = conv_variables((2*stride_conv1,
                                                      2*stride_conv1,
                                                      D_observation,
                                                      N_kernels_conv1))
         # Convolution layer 2 (stride 2)
-        self.W_conv2, self.b_conv2 = conv_variables((2*stride_conv2,
+        W_conv2, b_conv2 = conv_variables((2*stride_conv2,
                                                      2*stride_conv2,
                                                      N_kernels_conv1,
                                                      N_kernels_conv2))
         # Fully-connected layer # TODO: make 2592 variable
-        self.W_fc1, self.b_fc1 = fc_variables([2592, D_fc1])
+        W_fc1, b_fc1 = fc_variables([2592, D_fc1])
         # Policy layer
-        self.W_pi, self.b_pi = fc_variables([D_fc1, D_action])
+        W_pi, b_pi = fc_variables([D_fc1, D_action])
         # Value layer
-        self.W_value, self.b_value = fc_variables([D_fc1, 1])
+        W_value, b_value = fc_variables([D_fc1, 1])
+
+        self.params = {
+            "W_conv1": W_conv1, "b_conv1": b_conv1,
+            "W_conv2": W_conv2, "b_conv2": b_conv2,
+            "W_fc1":   W_fc1,   "b_fc1":   b_fc1,
+            "W_pi":    W_pi,    "b_pi":    b_pi,
+            "W_value": W_value, "b_value": b_value,
+        }
 
 
     def add_prediction_op(self):
@@ -104,19 +112,23 @@ class ActorCriticValueFeedForward:
         """
         observations = self.observations_ph
 
+        W_conv1, b_conv1 = self.params["W_conv1"], self.params["b_conv1"]
+        W_conv2, b_conv2 = self.params["W_conv2"], self.params["b_conv2"]
+        W_fc1,   b_fc1 =   self.params["W_fc1"],   self.params["b_fc1"]
+
         stride_conv1 = self.config["stride_conv1"]
         stride_conv2 = self.config["stride_conv2"]
 
-        z_conv1 = (conv2d(observations, self.W_conv1, stride_conv1)
-                   + self.b_conv1)
+        z_conv1 = (conv2d(observations, W_conv1, stride_conv1)
+                   + b_conv1)
         h_conv1 = tf.nn.relu(z_conv1)
 
-        z_conv2 = conv2d(h_conv1, self.W_conv2, stride_conv2) + self.b_conv2
+        z_conv2 = conv2d(h_conv1, W_conv2, stride_conv2) + b_conv2
         h_conv2 = tf.nn.relu(z_conv2)
         # TODO make shape variable
         h_conv2_flat = tf.reshape(h_conv2, (-1, 2592))
 
-        z_fc1 = tf.matmul(h_conv2_flat, self.W_fc1) + self.b_fc1
+        z_fc1 = tf.matmul(h_conv2_flat, W_fc1) + b_fc1
         h_fc1 = tf.nn.relu(z_fc1)
 
         return h_fc1
@@ -128,18 +140,20 @@ class ActorCriticValueFeedForward:
         advantages = self.advantages_ph
         rewards = self.rewards_ph
 
+        W_pi, b_pi = self.params["W_pi"], self.params["b_pi"]
+        W_value, b_value = self.params["W_value"], self.params["b_value"]
+
         # Policy loss
-        pi = tf.nn.softmax(tf.matmul(pred, self.W_pi)
-                           + self.b_pi)
-        pi = tf.clip_by_value(pi, 1e-20, 1.0)
+        pi = tf.nn.softmax(tf.matmul(pred, W_pi) + b_pi)
+        pi = self.pi = tf.clip_by_value(pi, 1e-20, 1.0)
         log_pi = tf.log(pi)
 
         action_probs = tf.reduce_sum(log_pi * actions, axis=1)
         policy_loss = - tf.reduce_sum(action_probs * advantages)
 
         # Value loss
-        v = tf.matmul(pred, self.W_value) + self.b_value
-        v_flat = tf.reshape(v, [-1])
+        v = tf.matmul(pred, W_value) + b_value
+        v_flat = self.value = tf.reshape(v, [-1])
 
         value_loss = tf.nn.l2_loss(rewards - v_flat)
 
@@ -185,6 +199,38 @@ class ActorCriticValueFeedForward:
         return feed_dict
 
 
+    def get_sync_params(self):
+        # TODO: otherwise we could return a dict, but we need a list to
+        # maintain the order to sync them
+        sync_params_order = [
+            "W_conv1", "b_conv1",
+            "W_conv2", "b_conv2",
+            "W_fc1",   "b_fc1",
+            "W_pi",    "b_pi",
+            "W_value", "b_value",
+        ]
+        sync_params = [ self.params[k] for k in SYNC_PARAMS_ORDER ]
+        return sync_params
+
+
+    def get_grad_params(self):
+        # TODO: otherwise we could return a dict, but we need a list to
+        # maintain the order to pass the params to agent.build_gradient_ops
+        grad_params_order = [
+            "W_conv1", "b_conv1",
+            "W_conv2", "b_conv2",
+            "W_fc1",   "b_fc1",
+            "W_pi",    "b_pi",
+            "W_value", "b_value",
+        ]
+        grad_params = [ self.params[k] for k in GRAD_PARAMS_ORDER ]
+        return grad_params
+
+
+    def run_policy_and_value(self, session, observation):
+        pi, value = sess.run([self.pi, self.value],
+                             feed_dict={ self.observations_ph: [observation] })
+        return (pi[0], value[0])
 
     def build(self):
         self.add_placeholders()
