@@ -232,6 +232,13 @@ class ActorCriticValueFeedForward:
                              feed_dict={ self.observations_ph: [observation] })
         return (pi[0], value[0])
 
+
+    def run_value(self, session, observation):
+        value = sess.run(self.value,
+                         feed_dict={ self.observations_ph: [observation] })
+        return value[0]
+
+
     def build(self):
         self.add_placeholders()
         self.init_variables()

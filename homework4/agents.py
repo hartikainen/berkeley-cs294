@@ -12,14 +12,13 @@ instantiation.
 """
 DEFAULT_AGENT_CONFIG = {
     "N_parallel_learners": 4,
-    "n_iter": 100,
-    "t_max": 10,
+    "local_t_max": 100,
+    "global_t_max": 100,
     "gamma": 0.98,
-    "lr": 0.01,
-    "min_lr": 0.002,
+    "learning_rate": 0.01,
     "lr_decay_no_steps": 10000,
     "rnn_size": 10,
-    "use_rnn": True,
+    "use_rnn": Flase,
     "num_threads": 1,
     "window_size": 4,
     "ob_shape": (84,84),
@@ -41,7 +40,7 @@ class A3CThread:
         self.learner_config = learner_config
         self.model_config = model_config
         self.global_model = global_model
-        self.stop_requested = False
+        self.total_local_t = 0
         # actor critic and value function
         self.ModelCls = ModelCls
         self.local_model = ModelCls(model_config)
@@ -83,70 +82,83 @@ class A3CThread:
         return np.random.choice(range(len(policy_probs)), p=policy_probs)
 
 
-    def learn(self, session):
+    def _get_gradient_op(self):
+        pass
+
+
+    def _anneal_learning_rate(self, global_t):
+        initial_learning_rate = self.config["learning_rate"]
+        global_t_max = self.config["global_t_max"]
+
+        learning_rate = (initial_learning_rate
+                         * (global_t_max - global_t)
+                         / global_t_max)
+
+        learning_rate = max(learning_rate, 0.0)
+
+        return learning_rate
+
+
+    def learn(self, session, global_t):
         observations, actions, rewards, values = [], [], [], []
         env = self.env
 
+        # TODO: reset gradients?
         self.sync_params(session)
 
         timesteps_this_batch = 0
-        for i in range(N_iterations):
-            observation = env.reset()
-            done, terminated = False, False
-            episode_len = 0
 
-            while not done:
-                episode_len += 1
+        done, terminated = False, False
+        observation = env.reset()
 
-                policy, value_pred = self.local_model.run_pi_and_value(
-                    session, observation)
-                action = self._choose_action(policy)
+        local_t = 1
+        while not done and local_t < self.config["local_t_max"]:
+            policy, value_pred = self.local_model.run_pi_and_value(
+                session, observation)
+            action = self._choose_action(policy)
 
-                observations.append(observation)
-                actions.append(action)
-                value_preds.append(value_pred)
+            observations.append(observation)
+            actions.append(action)
+            value_preds.append(value_pred)
 
-                observation, reward, done, _ = env.step(action)
+            observation, reward, done, _ = env.step(action)
 
-                # TODO: clip rewards?
-                rewards.append(reward)
+            # TODO: clip rewards?
+            rewards.append(reward)
 
-            path = {
-                "observations": np.array(observations),
-                "value_preds": np.array(value_preds),
-                "rewards": np.array(rewards),
-                "actions": np.array(action)
-            }
+            local_t += 1
+            global_t += 1
 
-            paths.append(path)
+        if not done:
+            bootstrap = self.local_network.run_value(sess, observations[-1])
+        else:
+            bootstrap = 0.0
 
-            batch_timesteps += episode_len
-            if bath_timesteps > min_timesteps_per_batch: break
-
-        total_timesteps += batch_timesteps
+        observations = np.array(observations)
+        value_preds = np.array(value_preds)
+        rewards = np.array(rewards)
+        actions = np.array(action)
 
         # Advantage function estimate
-        value_targetss, value_predss, advantagess = [], [], []
-        for path in paths:
-            rewards, value_preds = path["rewards"], path["value_preds"]
-            discounted_rewards = discount(rewards, self.config.gamma)
-            advantages = discounted_rewards - value_preds
+        discounted_rewards = discount(rewards, self.config.gamma, boostrap)
+        advantages = discounted_rewards - value_preds
 
-            value_targetss.append(discounted_rewards)
-            value_predss.append(value_preds)
-            advantagess.append(advantages)
+        learning_rate = self._anneal_learning_rate(global_t)
 
-
-        gradient_op = self.get_gradient_op()
+        gradient_op = self._get_gradient_op()
         gradient_feed_dict = {
-            self.local_model.observations_ph: batch_observations,
-            self.local_model.actions_ph: batch_actions,
-            self.local_model.advantages_ph: batch_advantages,
-            self.local_model.rewards_ph: rewards,
-            # TODO: learning rate placeholder
+            self.local_model.observations_ph: observations,
+            self.local_model.actions_ph: actions,
+            self.local_model.advantages_ph: advantages,
+            self.local_model.rewards_ph: discounted_rewards,
+            self.learning_rate_ph: learning_rate
         }
 
         sess.run(gradient_op, feed_dict=gradient_feed_dict)
+
+        self.total_local_t += local_t
+
+        return local_t
 
 
 # TODO: this class should probably be a more generic AsynchronousAgent, that
@@ -156,6 +168,7 @@ class A3CAgent:
         self.env_name = env_name
         self.config = config
         self.global_model = ModelCls(model_config)
+        self.stop_requested = False
 
 
         learners = []
