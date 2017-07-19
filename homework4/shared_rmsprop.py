@@ -40,16 +40,14 @@ class SharedRMSPropOptimizer(RMSPropOptimizer):
                                            global_step=global_step,
                                            name=name)
 
-    if sync_locals_after_update:
-      with control_dependencies([apply_gradients]):
-        update_local_vars = group(*[
-          assign(local_var, global_var)
-          for global_var, local_var in
-          zip(global_var_list, var_list)
-        ])
+    if not sync_locals_after_update:
+      return apply_gradients
 
-      minimize_op = group(apply_gradients, update_local_vars)
-    else:
-      minimize_op = apply_gradients
+    with control_dependencies([apply_gradients]):
+      update_local_vars = group(*[
+        assign(local_var, global_var)
+        for global_var, local_var in
+        zip(global_var_list, var_list)
+      ])
 
-    return minimize_op
+    return group(apply_gradients, update_local_vars)
