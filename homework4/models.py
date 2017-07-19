@@ -4,14 +4,13 @@ from operator import mul
 import tensorflow as tf
 
 DEFAULT_MODEL_CONFIG = {
-    "D_in": (84, 84, 4),
-    "D_action": 1,
     "beta": 0.01,
     "stride_conv1": 4,
     "N_kernels_conv1": 16,
     "stride_conv2": 2,
     "N_kernels_conv2": 32,
     "D_fc1": 256,
+    "D_fc2": 128
 }
 
 def conv_variables(shape):
@@ -35,7 +34,7 @@ def conv2d(x, W, stride, padding="VALID"):
     return tf.nn.conv2d(x, W, strides=(1, stride, stride, 1), padding=padding)
 
 
-class ActorCriticValueFeedForward:
+class ActorCriticValueModel:
     def __init__(self, config=DEFAULT_MODEL_CONFIG.copy()):
         """Initializes the model and builds the tensorflow graph for it.
 
@@ -44,6 +43,15 @@ class ActorCriticValueFeedForward:
         """
         self.config = config
         self.build()
+
+
+    def init_variables(self):
+        raise NotImplementedError("Required method")
+
+
+    def add_prediction_op(self):
+        raise NotImplementedError("Required method: add_prediction_op")
+
 
     def add_placeholders(self):
         """Generates placeholder variables to represent the input tensors
@@ -55,36 +63,153 @@ class ActorCriticValueFeedForward:
         actions_ph:
           Actions placeholder tensor of shape (None, D_action), type tf.float32
         """
-        D_in = self.config["D_in"]
+        D_observation = self.config["D_observation"]
         D_action = self.config["D_action"]
 
         self.observations_ph = tf.placeholder(
-            tf.float32, (None, D_in[0], D_in[1], D_in[2]))
+            tf.float32, (None, D_observation))
         self.actions_ph = tf.placeholder(tf.float32, (None, D_action))
         self.advantages_ph = tf.placeholder(tf.float32, [None])
         self.rewards_ph = tf.placeholder(tf.float32, [None])
 
+
+    def add_training_op(self, loss):
+        pass
+
+
+    def add_loss_op(self, pred):
+        # TODO: Check the signs!
+        actions = self.actions_ph
+        advantages = self.advantages_ph
+        rewards = self.rewards_ph
+
+        W_pi, b_pi = self.params["W_pi"], self.params["b_pi"]
+        W_value, b_value = self.params["W_value"], self.params["b_value"]
+
+        # Policy loss
+        pi = tf.nn.softmax(tf.matmul(pred, W_pi) + b_pi)
+        pi = self.pi = tf.clip_by_value(pi, 1e-20, 1.0)
+        log_pi = tf.log(pi)
+
+        action_probs = tf.reduce_sum(log_pi * actions, axis=1)
+        policy_loss = - tf.reduce_sum(action_probs * advantages)
+
+        # Value loss
+        v = tf.matmul(pred, W_value) + b_value
+        v_flat = self.value = tf.reshape(v, [-1])
+
+        value_loss = tf.nn.l2_loss(rewards - v_flat)
+
+        # Entropy loss
+        # TODO: should this use tf.nn.softmax_cross_entropy_with_logits?
+        entropy = - tf.reduce_sum(pi * log_pi, axis=1)
+
+        self.loss = (policy_loss
+                     + 0.5 * value_loss
+                     + self.config["beta"] * entropy)
+
+
+    def create_feed_dict(self, observations, actions=None):
+        """Creates the feed_dict to be passed for tensorflow run function
+
+        A feed_dict takes the form of:
+
+        feed_dict = {
+            <placeholder>: <tensor of values to be passed for placeholder>,
+            ...
+        }
+
+
+        The keys for the feed_dict are a subset of the placeholder tensors
+        created in add_placeholders. When an argument is None, we don't add
+        it to the feed_dict.
+
+        Args:
+            observations: A batch of observation data.
+            actions: A batch of action data.
+        Returns:
+            feed_dict: The feed dictionary mapping from placeholders to values.
+        """
+        feed_dict = { self.observations_ph: observations }
+
+        if actions is not None:
+            feed_dict.update({ self.actions_ph: actions })
+
+        return feed_dict
+
+
+    def run_policy_and_value(self, session, observation):
+        pi, value = session.run([self.pi, self.value],
+                                feed_dict={
+                                    self.observations_ph: [observation]
+                                })
+        return (pi[0], value[0])
+
+
+    def run_value(self, session, observation):
+        value = session.run(self.value,
+                            feed_dict={
+                                self.observations_ph: [observation]
+                            })
+        return value[0]
+
+
+    def get_sync_params(self):
+        # TODO: otherwise we could return a dict, but we need a list to
+        # maintain the order to sync them
+        sync_params = [ self.params[k] for k in self.sync_params_order ]
+        return sync_params
+
+
+    def get_grad_params(self):
+        # TODO: otherwise we could return a dict, but we need a list to
+        # maintain the order to pass the params to agent.build_gradient_ops
+        grad_params = [ self.params[k] for k in self.grad_params_order ]
+        return grad_params
+
+
+    def build(self):
+        self.add_placeholders()
+        self.init_variables()
+        self.pred = self.add_prediction_op()
+        self.loss = self.add_loss_op(self.pred)
+
+
+class ActorCriticValueConvolution(ActorCriticValueModel):
+    def __init__(self, *args):
+        super().__init__(*args)
+
+        self.sync_params_order = self.grad_params_order = [
+            "W_conv1", "b_conv1",
+            "W_conv2", "b_conv2",
+            "W_fc1",   "b_fc1",
+            "W_pi",    "b_pi",
+            "W_value", "b_value",
+        ]
+
+
     def init_variables(self):
-        D_observation = self.config["D_in"][2]
+        D_observation = self.config["D_observation"]
         D_action = self.config["D_action"]
 
         stride_conv1 = self.config["stride_conv1"]
         N_kernels_conv1 = self.config["N_kernels_conv1"]
         stride_conv2 = self.config["stride_conv2"]
         N_kernels_conv2 = self.config["N_kernels_conv2"]
+
         D_fc1 = self.config["D_fc1"]
 
         # Initialize variables
         # Convolution layer 1 (stride 4)
         W_conv1, b_conv1 = conv_variables((2*stride_conv1,
-                                                     2*stride_conv1,
-                                                     D_observation,
-                                                     N_kernels_conv1))
+                                           2*stride_conv1,
+                                           D_observation,
+                                           N_kernels_conv1))
         # Convolution layer 2 (stride 2)
         W_conv2, b_conv2 = conv_variables((2*stride_conv2,
-                                                     2*stride_conv2,
-                                                     N_kernels_conv1,
-                                                     N_kernels_conv2))
+                                           2*stride_conv2,
+                                           N_kernels_conv1,
+                                           N_kernels_conv2))
         # Fully-connected layer # TODO: make 2592 variable
         W_fc1, b_fc1 = fc_variables([2592, D_fc1])
         # Policy layer
@@ -134,113 +259,59 @@ class ActorCriticValueFeedForward:
         return h_fc1
 
 
-    def add_loss_op(self, pred):
-        # TODO: Check the signs!
-        actions = self.actions_ph
-        advantages = self.advantages_ph
-        rewards = self.rewards_ph
+class ActorCriticValueFullyConnected(ActorCriticValueModel):
+    def __init__(self, *args):
+        super().__init__(*args)
 
-        W_pi, b_pi = self.params["W_pi"], self.params["b_pi"]
-        W_value, b_value = self.params["W_value"], self.params["b_value"]
-
-        # Policy loss
-        pi = tf.nn.softmax(tf.matmul(pred, W_pi) + b_pi)
-        pi = self.pi = tf.clip_by_value(pi, 1e-20, 1.0)
-        log_pi = tf.log(pi)
-
-        action_probs = tf.reduce_sum(log_pi * actions, axis=1)
-        policy_loss = - tf.reduce_sum(action_probs * advantages)
-
-        # Value loss
-        v = tf.matmul(pred, W_value) + b_value
-        v_flat = self.value = tf.reshape(v, [-1])
-
-        value_loss = tf.nn.l2_loss(rewards - v_flat)
-
-        # Entropy loss
-        # TODO: should this use tf.nn.softmax_cross_entropy_with_logits?
-        entropy = - tf.reduce_sum(pi * log_pi, axis=1)
-
-        self.loss = (policy_loss
-                     + 0.5 * value_loss
-                     + self.config["beta"] * entropy)
+        self.sync_params_order = self.grad_params_order = [
+            "W_fc1",   "b_fc1",
+            "W_fc2",   "b_fc2",
+            "W_pi",    "b_pi",
+            "W_value", "b_value",
+        ]
 
 
-    def add_training_op(self, loss):
-        pass
+    def init_variables(self):
+        D_observation = self.config["D_observation"]
+        D_action = self.config["D_action"]
 
+        D_fc1 = self.config["D_fc1"]
+        D_fc2 = self.config["D_fc2"]
 
-    def create_feed_dict(self, observations, actions=None):
-        """Creates the feed_dict to be passed for tensorflow run function
+        # Feed-forward
+        W_fc1, b_fc1 = fc_variables([D_observation, D_fc1])
+        W_fc2, b_fc2 = fc_variables([D_fc1, D_fc2])
+        # Policy layer
+        W_pi, b_pi = fc_variables([D_fc2, D_action])
+        # Value layer
+        W_value, b_value = fc_variables([D_fc2, 1])
 
-        A feed_dict takes the form of:
-
-        feed_dict = {
-            <placeholder>: <tensor of values to be passed for placeholder>,
-            ...
+        self.params = {
+            "W_fc1":   W_fc1,   "b_fc1":   b_fc1,
+            "W_fc2":   W_fc2,   "b_fc2":   b_fc2,
+            "W_pi":    W_pi,    "b_pi":    b_pi,
+            "W_value": W_value, "b_value": b_value,
         }
 
 
-        The keys for the feed_dict are a subset of the placeholder tensors
-        created in add_placeholders. When an argument is None, we don't add
-        it to the feed_dict.
+    def add_prediction_op(self):
+        """Adds operators for a 3-hidden-layer neural network
 
-        Args:
-            observations: A batch of observation data.
-            actions: A batch of action data.
+        The network has the following architecture:
+            affine - relu - affine - relu
+
         Returns:
-            feed_dict: The feed dictionary mapping from placeholders to values.
+            pred: tf.Tensor of shape (batch_size, n_classes)
         """
-        feed_dict = { self.observations_ph: observations }
+        observations = self.observations_ph
 
-        if actions is not None:
-            feed_dict.update({ self.actions_ph: actions })
+        W_fc1, b_fc1 = self.params["W_fc1"], self.params["b_fc1"]
+        W_fc2, b_fc2 = self.params["W_fc2"], self.params["b_fc2"]
 
-        return feed_dict
+        z_fc1 = tf.matmul(observations, W_fc1) + b_fc1
+        h_fc1 = tf.nn.relu(z_fc1)
 
+        z_fc2 = tf.matmul(h_fc1, W_fc2) + b_fc2
+        h_fc2 = tf.nn.relu(z_fc2)
 
-    def get_sync_params(self):
-        # TODO: otherwise we could return a dict, but we need a list to
-        # maintain the order to sync them
-        sync_params_order = [
-            "W_conv1", "b_conv1",
-            "W_conv2", "b_conv2",
-            "W_fc1",   "b_fc1",
-            "W_pi",    "b_pi",
-            "W_value", "b_value",
-        ]
-        sync_params = [ self.params[k] for k in SYNC_PARAMS_ORDER ]
-        return sync_params
-
-
-    def get_grad_params(self):
-        # TODO: otherwise we could return a dict, but we need a list to
-        # maintain the order to pass the params to agent.build_gradient_ops
-        grad_params_order = [
-            "W_conv1", "b_conv1",
-            "W_conv2", "b_conv2",
-            "W_fc1",   "b_fc1",
-            "W_pi",    "b_pi",
-            "W_value", "b_value",
-        ]
-        grad_params = [ self.params[k] for k in GRAD_PARAMS_ORDER ]
-        return grad_params
-
-
-    def run_policy_and_value(self, session, observation):
-        pi, value = sess.run([self.pi, self.value],
-                             feed_dict={ self.observations_ph: [observation] })
-        return (pi[0], value[0])
-
-
-    def run_value(self, session, observation):
-        value = sess.run(self.value,
-                         feed_dict={ self.observations_ph: [observation] })
-        return value[0]
-
-
-    def build(self):
-        self.add_placeholders()
-        self.init_variables()
-        self.pred = self.add_prediction_op()
-        self.loss = self.add_loss_op(self.pred)
+        return h_fc2

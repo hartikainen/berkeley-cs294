@@ -52,6 +52,8 @@ def main():
 
     Agent = AgentCls(env_name, ModelCls, agent_config, model_config)
 
+    Agent.learn()
+
 
 if __name__ == "__main__":
     main()

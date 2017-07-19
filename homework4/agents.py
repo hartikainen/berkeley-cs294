@@ -1,7 +1,11 @@
-from helpers import discount
+import threading
+import signal
 
 import tensorflow as tf
+import numpy as np
 import gym
+
+from helpers import discount
 
 
 """Holds agent hyperparams and meta information.
@@ -18,12 +22,12 @@ DEFAULT_AGENT_CONFIG = {
     "learning_rate": 0.01,
     "lr_decay_no_steps": 10000,
     "rnn_size": 10,
-    "use_rnn": Flase,
-    "num_threads": 1,
+    "use_rnn": False,
+    "num_threads": 2,
     "window_size": 4,
     "ob_shape": (84,84),
     "crop_centering": (0.5,0.7),
-    "env_name": '',
+    "env_name": 'CartPole-v0',
     "beta": 0.01,
     "rms_decay": 0.99,
     "rms_epsilon": 0.01,
@@ -37,7 +41,7 @@ DEFAULT_AGENT_CONFIG = {
 class A3CThread:
     def __init__(self, env, ModelCls, global_model, learner_config, model_config):
         self.env = env
-        self.learner_config = learner_config
+        self.config = learner_config
         self.model_config = model_config
         self.global_model = global_model
         self.total_local_t = 0
@@ -100,7 +104,7 @@ class A3CThread:
 
 
     def learn(self, session, global_t):
-        observations, actions, rewards, values = [], [], [], []
+        observations, actions, rewards, value_preds = [], [], [], []
         env = self.env
 
         # TODO: reset gradients?
@@ -113,7 +117,7 @@ class A3CThread:
 
         local_t = 1
         while not done and local_t < self.config["local_t_max"]:
-            policy, value_pred = self.local_model.run_pi_and_value(
+            policy, value_pred = self.local_model.run_policy_and_value(
                 session, observation)
             action = self._choose_action(policy)
 
@@ -127,7 +131,6 @@ class A3CThread:
             rewards.append(reward)
 
             local_t += 1
-            global_t += 1
 
         if not done:
             bootstrap = self.local_network.run_value(sess, observations[-1])
@@ -140,7 +143,7 @@ class A3CThread:
         actions = np.array(action)
 
         # Advantage function estimate
-        discounted_rewards = discount(rewards, self.config.gamma, boostrap)
+        discounted_rewards = discount(rewards, self.config["gamma"], bootstrap)
         advantages = discounted_rewards - value_preds
 
         learning_rate = self._anneal_learning_rate(global_t)
@@ -166,25 +169,76 @@ class A3CThread:
 class A3CAgent:
     def __init__(self, env_name, ModelCls, config, model_config):
         self.env_name = env_name
+        self.env = env = gym.make(self.env_name)
         self.config = config
-        self.global_model = ModelCls(model_config)
+        self.model_config = model_config.copy()
+        self.model_config.update({
+            "D_observation": env.observation_space.shape[0],
+            "D_action": env.action_space.n
+        })
+        self.ModelCls = ModelCls
+        self.global_model = ModelCls(self.model_config)
         self.stop_requested = False
 
 
+        self.init_learners()
+        self.reset()
+
+
+    def init_learners(self):
         learners = []
         for i in range(self.config["N_parallel_learners"]):
-            learner_config = config.copy()
-            learner_config["device"] = "/job:worker/task:{}/cpu:0".format(i)
-            env = gym.make(env_name)
+            learner_config = self.config.copy()
+            device_name = "/job:worker/task:{}/cpu:0".format(i)
+            learner_config["device_name"] = device_name
+            env = self.env
             learner = A3CThread(env,
-                                ModelCls,
-                                global_model,
+                                self.ModelCls,
+                                self.global_model,
                                 learner_config,
-                                model_config)
+                                self.model_config)
+
             learners.append(learner)
 
-        sess = tf.Session(config=tf.ConfigProto(log_device_placement=False,
-                                                allow_soft_placement=True))
+        self.learners = learners
+
 
         init = tf.global_variables_initializer()
-        sess.run(init)
+        session.run(init)
+
+
+    def reset(self):
+        self.global_t = 0
+
+
+    def learn(self):
+        global_t_max = self.config["global_t_max"]
+
+        self.learners[0].learn(self.session, self.global_t)
+        return
+
+        def train_fn(learner):
+            while self.global_t < global_t_max and not self.stop_requested:
+                t = learner.learn(self.session, self.global_t)
+                self.global_t += t
+
+
+        def signal_handler(signal, frame):
+            print('Stop Requested. Stopping learners.')
+            self.stop_requested = True
+
+        threads = [
+            threading.Thread(target=train_fn, args=(self.learners[i],))
+            for i in range(self.config["num_threads"])
+        ]
+
+        signal.signal(signal.SIGINT, signal_handler)
+
+        for t in threads:
+            t.start()
+
+        print('Press Ctrl+C to stop')
+        signal.pause()
+
+        for t in threads:
+            t.join()

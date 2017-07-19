@@ -27,7 +27,7 @@ def parse_args():
                         help="Number timesteps to run")
     parser.add_argument("--ac_model",
                         type=str,
-                        default="ActorCriticValueFeedForward",
+                        default="ActorCriticValueFullyConnected",
                         help=("Name of the class in models.py that will be "
                               "used as the actor critic model"))
     parser.add_argument("--agent",
